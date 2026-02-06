@@ -1,0 +1,2 @@
+N_cfg,N_eff,avg_contacts_param,groups_param,avg_group_size_param,p_contact_cross_param,p_group_cross_param,fork_frac_labels,deg_mean,deg_p50,deg_p95,deg_max,gsize_mean,gsize_p50,gsize_p95,gsize_max,cross_contact_frac_obs,cross_group_frac_obs
+500,500,25.0,800,10.0,0.005,0.005,0.1,25.11,25.0,33.0,40.0,9.75375,10.0,15.0,23.0,0.005575467941059339,0.00525438933743432
