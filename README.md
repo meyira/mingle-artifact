@@ -14,17 +14,19 @@ This artifact includes:
 
 ```
 .
-├── README.md                          # This file
-├── network-simulation/
-│   └── simulation.ipynb              # Network simulation Jupyter notebook
-├── user-study-results/
-│   ├── results-user-study.csv        # Raw anonymized study data
-└── signal-gossip-client/
-    ├── key-transparency-server/      # local KT server
-    ├── libsignal/                    # Common Rust library for Signal apps.
-    ├── Signal-Android/               # Signal Android App, relies on libsignal
-    ├── requirements.txt              # Python dependencies
-    └── README.md                     # Implementation documentation
+|-- README.md                         # This file
+|-- network-simulation/
+|   |-- analysis/                     # analysis scripts
+|   |-- kt_gossip_simulator.ipynb     # Network simulation Jupyter notebook
+|   |-- README.md                     # Simulation documentation
+|-- user-study-results/
+|   |-- results-user-study.csv        # Raw anonymized study data
+|-- signal-gossip-client/
+    |-- key-transparency-server/      # local KT server
+    |-- libsignal/                    # Common Rust library for Signal apps.
+    |-- Signal-Android/               # Signal Android App, relies on libsignal
+    |-- requirements.txt              # Python dependencies
+    |-- README.md                     # Implementation documentation
 ```
 
 ## Reproducing Paper Results
