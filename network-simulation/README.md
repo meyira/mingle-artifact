@@ -15,7 +15,7 @@ Key parameters can be adjusted at the top of the notebook:
 - `users` - Number of users (default small: 500, default laptop 2000)
 - `hours` - Simulation duration
 - `groups` - Number of group chats
-- `msg_rate_1to1/group** - Message rates (TODO EDONA messages per minute)
+- `msg_rate_1to1/group** - Message rates (TODO  messages per minute)
 - `p\_gossip` - Probability of gossip protocol exchange
 - `adoption` - Fraction of users using the gossip protocol
 - `server\_mode` - mode of operation for the server, choose between honest, permanent\_fork, transient_fork, rolling, freeze, regional
@@ -25,9 +25,9 @@ Key parameters can be adjusted at the top of the notebook:
 ## Output
 
 The simulation generates:
-TODO EDONA FILL IN HERE WHICH FIGURES ARE GENERATED HOW
+TODO  FILL IN HERE WHICH FIGURES ARE GENERATED HOW
 
-Results match Figure 3 and Table 2 in the paper. TODO EDONA
+Results match Figure 3 and Table 2 in the paper. TODO 
 
 ## Runtime
 
@@ -52,5 +52,5 @@ pip install -r requirements.txt
 The simulation is computationally intensive. Consider:
 - Reducing the number of users in the configuration
 - Running on a machine with more CPU cores
-- Using the pre-computed results in `network-simulation/results/` TODO EDONA DO
+- Using the pre-computed results in `network-simulation/results/` TODO  DO
   WE HAVE THESE?
