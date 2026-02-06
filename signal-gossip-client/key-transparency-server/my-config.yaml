@@ -1,0 +1,48 @@
+kt:
+  server-addr: 0.0.0.0:8082
+  authorized-headers:
+    ExampleHeader1:
+      - example value one
+      - example value two
+  header-value-to-auditor-name:
+    example value one: example-auditor-1
+    example value two: example-auditor-2
+
+kt-query:
+  server-addr: 0.0.0.0:8080
+  # at least one header-value mapping in this map will be required to be present on inbound requests with the configured value
+  # authorized-headers:
+  #   ExampleHeader1:
+  #     - example value one
+  #     - example value two
+  # header-value-to-auditor-name:
+  #   example value one: example-auditor-1
+  #   example value two: example-auditor-2
+
+kt-test:
+  server-addr: 0.0.0.0:8081
+
+metrics-addr: 0.0.0.0:8083
+health-addr: 0.0.0.0:8084
+
+# Paste in the keys generated via `go run github.com/signalapp/keytransparency/cmd/generate-keys`
+api:
+  signing-key: 2964fbf535701b0adea21afb1b97294cb71c70d3eeadd656297a13af2d31d586
+  vrf-key: 05f9d16238ed0bc318807edd76f3db59399ecf0daf8e57b6fb628fdeff863087
+  prefix-key: baaffee706de04f01a93d8390a6e002374ed93161b97b2dec19839a8f892c95e
+  opening-key: 078ed7b987e49b5e0b3999956561719300c4462c453a2c2ff17ad8de3229f844
+  fake:
+    count: 5
+    interval: 10s
+  distinguished: 2s
+  auditors:
+    example-auditor-1: abcdef1234abcdef1234abcdef1234abcdef1234abcdef1234abcdef1234abcd
+    example-auditor-2: abcdef1234abcdef1234abcdef1234abcdef1234abcdef1234abcdef1234abcd
+  min-search-delay: 1s
+  min-monitor-delay: 1s
+  jitter-percent: 10
+
+db:
+  file: example/db
+
+account-db: mock
