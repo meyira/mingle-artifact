@@ -24,6 +24,7 @@ This artifact includes:
 |-- signal-gossip-client/
     |-- key-transparency-server/      # local KT server
     |-- libsignal/                    # Common Rust library for Signal apps.
+    |-- input-messages.ods            # Messages used in benchmarks
     |-- Signal-Android/               # Signal Android App, relies on libsignal
     |-- requirements.txt              # Python dependencies
     |-- README.md                     # Implementation documentation
