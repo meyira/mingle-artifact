@@ -616,16 +616,8 @@ internal object Native {
   public external fun KeyTransparency_Search(asyncRuntime: ObjectHandle, environment: Int, chatConnection: ObjectHandle, aci: ByteArray, aciIdentityKey: ObjectHandle, e164: String?, unidentifiedAccessKey: ByteArray?, usernameHash: ByteArray?, accountData: ByteArray?, lastDistinguishedTreeHead: ByteArray): CompletableFuture<ByteArray>
   @JvmStatic
   public external fun KeyTransparency_UsernameHashSearchKey(hash: ByteArray): ByteArray
-
   @JvmStatic
-  external fun Verify_Distinguished(fthBytes: ByteArray, trustedRootBytes: ByteArray?, trustedTreeSize: Long): ByteArray
-  @JvmStatic
-  external fun Verify_Search(aci_key: ByteArray?, fullSearchResponseBytes: ByteArray?, lthBytes: ByteArray?, ldthBytes: ByteArray?, mdBytes: ByteArray?, forceMonitor: Boolean): ByteArray
-  @JvmStatic
-  external fun Verify_Monitor(req: ByteArray?, res: ByteArray?, lastTreeHead: ByteArray?, lastDistinguishedTreeHead: ByteArray?, data: ByteArray?, now: Long): ByteArray
-  @JvmStatic
-  external fun Verify_And_Get_Commitment_Index(userIdBytes: ByteArray, vrfProofBytes: ByteArray): ByteArray
-
+  external fun Verify_Distinguished_Response(distinguished_response: ByteArray, stored_tree_head: ByteArray?): ByteArray
   @JvmStatic
   public external fun KyberKeyPair_Destroy(handle: ObjectHandle): Unit
   @JvmStatic

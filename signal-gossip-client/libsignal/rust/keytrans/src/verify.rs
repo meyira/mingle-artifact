@@ -283,7 +283,7 @@ fn check_consistency_metadata<'a>(
         None => {
             if !proof.is_empty() {
                 return Err(Error::BadData(
-                    "consistency proof provided when not expected".to_string(),
+                    "consistency proof provided when not expected (context: no baseline)".to_string(),
                 ));
             };
             Ok(None)
@@ -301,7 +301,7 @@ fn check_consistency_metadata<'a>(
             }
             if !proof.is_empty() {
                 return Err(Error::BadData(
-                    "consistency proof provided when not expected".to_string(),
+                    "consistency proof provided when not expected (context: same tree size)".to_string(),
                 ));
             }
             Ok(None)
@@ -375,9 +375,9 @@ fn verify_timestamp(
 
 /// Checks that the provided FullTreeHead has a valid consistency proof relative
 /// to the provided distinguished head.
-/// FIXME Planned to NOT use it for checking consistency proofs, due to instantiation issues
+/// TODO FTH... It does only test ONE PART of a DistinguishedResponse
 pub fn verify_distinguished(
-    // Used properties: FTH.tree_head, FTH.distinguished
+    // Used properties: FTH.tree_head, FTH.distinguished (&get_hash_proof(&fth.distinguished)?)
     fth: &FullTreeHead,
     // The DTH that I am trusting for now
     // Used properties: LTH.tree_head, LTH.root --> (only using LTH.root)
@@ -502,6 +502,7 @@ fn verify_search_internal(
         Ok::<(), Error>(())
     })?;
 
+    // Calculate Root hash after verifying search proof
     let root = {
         if i != search_proof.steps.len() {
             return Err(Error::VerificationFailed(

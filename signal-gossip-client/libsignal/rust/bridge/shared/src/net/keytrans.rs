@@ -3,17 +3,17 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //
 
-use std::collections::HashMap;
 use crate::support::*;
 use crate::*;
+use ed25519_dalek::SigningKey;
 use itertools::Itertools;
 use libsignal_bridge_macros::{bridge_fn, bridge_io};
 use libsignal_bridge_types::net::chat::UnauthenticatedChatConnection;
 pub use libsignal_bridge_types::net::{Environment, TokioAsyncContext};
 use libsignal_bridge_types::support::AsType;
 use libsignal_core::{Aci, E164};
-use libsignal_keytrans::verify::{verify_distinguished, verify_monitor, verify_search};
-use libsignal_keytrans::{vrf, AccountData, DeploymentMode, FullSearchResponse, FullTreeHead, LastTreeHead, LocalStateUpdate, MonitorContext, MonitorRequest, MonitorResponse, PublicConfig, SearchContext, SearchResponse, SlimSearchRequest, StoredAccountData, StoredTreeHead, TreeHead, VerifyingKey, Versioned};
+use libsignal_keytrans::verify::verify_search;
+use libsignal_keytrans::{vrf, AccountData, ChatDistinguishedResponse, DeploymentMode, FullSearchResponse, LastTreeHead, LocalStateUpdate, PublicConfig, SearchContext, SearchStateUpdate, SlimSearchRequest, StoredAccountData, StoredTreeHead, Versioned};
 use libsignal_net_chat::api::keytrans::{
     monitor_and_search, Error, KeyTransparencyClient, MaybePartial, MonitorMode,
     SearchKey, UnauthenticatedChatApi as _, UsernameHash,
@@ -23,8 +23,6 @@ use libsignal_protocol::PublicKey;
 use prost::{DecodeError, Message};
 use std::convert::TryFrom;
 use std::time::SystemTime;
-use ed25519_dalek::SigningKey;
-use libsignal_core::curve::PrivateKey;
 
 #[bridge_fn]
 fn KeyTransparency_AciSearchKey(aci: Aci) -> Vec<u8> {
@@ -42,107 +40,73 @@ fn KeyTransparency_UsernameHashSearchKey(hash: &[u8]) -> Vec<u8> {
 }
 
 #[bridge_fn]
-fn Verify_Distinguished(
-    fth_bytes: Option<Box<[u8]>>,
-    trusted_root_bytes: Option<Box<[u8]>>,
-    trusted_tree_size: u64,
+fn Verify_Distinguished_Response(
+    distinguished_response: Option<Box<[u8]>>,
+    stored_tree_head: Option<Box<[u8]>>,
 ) -> Result<Vec<u8>, RequestError<Error>> {
+    // 1. Unmarshal the DistinguishedResponse object
+    let dr_bytes = distinguished_response
+        .ok_or(invalid_request("No DTH bytes provided"))?;
 
-    let fth_bytes = fth_bytes.ok_or(invalid_request("No FTH bytes provided"))?;
-    // Should work, as the protobuf definitons are the same: wire.proto (Libsignal) == transparecy.proto (KT Server)
-    let fth = FullTreeHead::decode(&*fth_bytes)
-        .map_err(|e| invalid_request("Protobuf decode failed: {}"))?;
+    let ChatDistinguishedResponse {
+        tree_head,
+        distinguished,
+    } = ChatDistinguishedResponse::decode(&*dr_bytes)
+        .map_err(|_| invalid_request("Protobuf decode of DistinguishedResponse failed"))?;
 
-    // FIXME bugfix
-    let last_trusted = if let Some(root_bytes) = trusted_root_bytes {
-        let root_hash: [u8; 32] = (*root_bytes).try_into()
-            .map_err(|_| invalid_request("Invalid root hash length (must be 32)"))?;
-
-        Some((
-            TreeHead {
-                tree_size: trusted_tree_size,
-                timestamp: 0,
-                signatures: vec![],
-            },
-            root_hash
+    let tree_head = tree_head.ok_or_else(|| {
+        RequestError::Other(Error::InvalidResponse(
+            "tree head must be present".to_string(),
         ))
-    } else {
-        None
-    };
+    })?;
+    let condensed_response = distinguished.ok_or_else(|| {
+        RequestError::Other(Error::InvalidResponse(
+            "search response must be present".to_string(),
+        ))
+    })?;
+    let search_response = FullSearchResponse::new(condensed_response, &tree_head);
 
-    // Calling verification method. This has already been implemented by Signal
-    verify_distinguished(&fth, last_trusted.as_ref(), last_trusted.as_ref().unwrap_or(&LastTreeHead::default()))
-        .map_err(|e| invalid_request("CRYPTO VERIFICATION FAILED: {:?}"))?;
+    // 2. Unmarshal the last known tree head
+    let parsed_stored_tree_head = stored_tree_head
+        .map(|bytes| StoredTreeHead::decode(&*bytes))
+        .transpose()
+        .map_err(|_| invalid_request("Failed to parse LastTreeHead protobuf"))?;
 
-    // Rule of thumb: if nothing is thrown, the objects shall be ok
-    Ok(vec![])
-}
+    let parsed_last_tree_head: Option<LastTreeHead> = parsed_stored_tree_head
+        .map(|sth| sth.into_last_tree_head()).flatten();
 
-#[bridge_fn]
-fn Verify_Search(
-    aci_key: Option<Box<[u8]>>,   // only the ACI. converted to vec<u8>
-    full_search_response_bytes: Option<Box<[u8]>>, // to be unmarshalled here and separated into SearchResponses
-    lth_bytes: Option<Box<[u8]>>,   // Type LastTreeHead, contains a TreeHead (protobuf) and a TreeRoot
-    ldth_bytes: Option<Box<[u8]>>,  // Type LastTreeHead, contains a TreeHead (protobuf) and a TreeRoot
-    md_bytes: Option<Box<[u8]>>, // will certainly set it to None or null or whatever its called in Rust
-    force_monitor: bool,
-) -> Result<Vec<u8>, RequestError<Error>> {
-    //     req: SlimSearchRequest,  <-- I expect search_key to be the ACI. only search_key needed for init.
-    //     res: FullSearchResponse, <-- SearchResponse: FullTreeHead and up to 3 CondensedTreeSearchResponse
-    // While FullSearchResponse only has one FullTreeHead and one CondensedTreeSearchResponse.
-    // Hence, its better to have one FullSearchResponse sent over and construct the SearchResponses here
+    // 3. create a SlimSearchRequest and a PublicConfig to provide it to the verification method
+    let slim_search_request = SlimSearchRequest::new(b"distinguished".to_vec());
 
-    //     context: SearchContext,  <-- contains the last tree head, distinguished tree head and MonitoringData
-    // Provide it via JNI and construct the object here
-    //     force_monitor: bool,     <-- i will set it to false, I CBA researching it tbh
-    //     now: SystemTime,         <-- i will set it to the current time.
-    // -> Result<SearchStateUpdate>
     let config = get_hardcoded_config()
-        .map_err(|e| invalid_response(format!("the config is invalid: {}", e).to_string()))?;
+        .map_err(|e| invalid_request("Failed to obtain configuration"))?;
 
-    let aci_vec = aci_key.ok_or(invalid_request("ACI is invalid"))?.to_vec();
-    let req = SlimSearchRequest::new(aci_vec);
+    // 4. call the method
+    let verification_result = verify_search(
+            &config,
+            slim_search_request,
+            search_response,
+            SearchContext {
+                last_tree_head: parsed_last_tree_head.as_ref(),
+                last_distinguished_tree_head: parsed_last_tree_head.as_ref(),
+                data: None,
+            },
+            false,
+            SystemTime::now(),
+        )
+        .map_err(|e| RequestError::Other(e.into()))?;
 
-    let sr_bytes = full_search_response_bytes
-        .ok_or(invalid_request("FSR is *****"))?;
+    // 5. convert the result to a StoredTreeHead and return it
+    let SearchStateUpdate {
+        tree_head,
+        tree_root,
+        monitoring_data
+    } = verification_result;
 
-    let proto_res = SearchResponse::decode(&*sr_bytes)
-        .map_err(|e| invalid_request("Protobuf Decode Failed: {}"))?;
+    let x: LastTreeHead = (tree_head, tree_root);
 
-    // Verify SearchResponses on its own
-
-    let tree_head_ref = proto_res.tree_head.as_ref()
-        .ok_or(invalid_request("Missing TreeHead in SearchResponse"))?;
-
-    // Creating up to 3 FullSearchResponses out of the SearchResponse
-    let full_res = FullSearchResponse {
-        condensed: proto_res.aci.clone()
-            .ok_or(invalid_response("****!".to_string()))
-            .map_err(|e| invalid_response("****!".to_string()))?,
-        tree_head: tree_head_ref,
-    };
-
-    let last_th = None;
-    // let last_th: Option<LastTreeHead> = if let Some(bytes) = lth_bytes {
-    //     let proto_lth = LastTreeHead::decode(&*bytes).map_err(|_| invalid_request("LTH Fail"))?;
-    //     let tree_root: [u8; 32] = proto_lth.tree_root.try_into().map_err(|_| invalid_request("Bad Root"))?;
-    //     let th = proto_lth.tree_head.ok_or(invalid_request("Missing LTH TreeHead"))?;
-    //     Some((th, tree_root))
-    // } else {
-    //     None
-    // };
-
-    let context = SearchContext {
-        last_tree_head: last_th,
-        last_distinguished_tree_head: None,
-        data: None,
-        ..Default::default()
-    };
-
-    let now = SystemTime::now();
-    // Call verify_search for each SearchResult entry
-    verify_search(&config, req, full_res, context, false, now);
-    Ok(vec![])
+    let return_value: StoredTreeHead = x.into();
+    Ok(return_value.encode_to_vec())
 }
 
 fn get_hardcoded_config() -> Result<PublicConfig, String> {
@@ -171,90 +135,6 @@ fn get_hardcoded_config() -> Result<PublicConfig, String> {
         signature_key,
         vrf_key,
     })
-}
-
-#[bridge_fn]
-fn Verify_And_Get_Commitment_Index(
-    userIdBytes: Option<Box<[u8]>>,
-    vrfProofBytes: Option<Box<[u8]>>
-) -> Result<Vec<u8>, RequestError<Error>> {
-    let config = get_hardcoded_config()
-        .map_err(|e| invalid_response(format!("config invalid: {}", e)))?;
-
-    let user_id = userIdBytes.ok_or_else(|| invalid_response("User ID missing".to_string()))?;
-    let proof_vec = vrfProofBytes.ok_or_else(|| invalid_response("VRF Proof missing".to_string()))?;
-
-    let proof_array: [u8; 80] = proof_vec.as_ref().try_into()
-        .map_err(|_| invalid_response("VRF Proof must be exactly 80 bytes".to_string()))?;
-
-    let mut message = Vec::with_capacity(1 + user_id.len());
-    message.push(b'a');
-    message.extend_from_slice(&user_id);
-
-    let commitment_index = config.vrf_key.proof_to_hash(&message, &proof_array)
-        .map_err(|_| invalid_response("VRF Verification failed".to_string()))?;
-
-    Ok(commitment_index.to_vec())
-}
-
-#[bridge_fn]
-fn Verify_Monitor(
-    req: Option<Box<[u8]>>,
-    res: Option<Box<[u8]>>,
-    last_tree_head: Option<Box<[u8]>>,
-    last_distinguished_tree_head: Option<Box<[u8]>>,
-    now: u64
-) -> Result<Vec<u8>, RequestError<Error>> {
-    // req: ByteArray?,
-    // res: ByteArray?,
-    // lastTreeHead: ByteArray?,
-    // last_distinguished_tree_head: ByteArray?,
-    // data: ByteArray?, now: Long
-
-    // config: &'a PublicConfig,
-    // req: &'a MonitorRequest (already converted on java level)
-    // res: &'a MonitorResponse (already converted on java level)
-    // context: MonitorContext (to be built together)
-    // now: SystemTime, (i will ignore it and use my own time for now)
-
-    let config = get_hardcoded_config()
-        .map_err(|e| invalid_request("Error while loading config"))?;
-
-    let req_bytes = req.ok_or(invalid_request("Request is invalid"))?;
-    let restored_req = MonitorRequest::decode(&*req_bytes)
-        .map_err(|e| invalid_request("Req Decode failed"))?;
-
-    let res_bytes = res.ok_or(invalid_request("Response is invalid"))?;
-    let restored_res = MonitorResponse::decode(&*res_bytes)
-        .map_err(|e| invalid_request("Res Decode failed"))?;
-
-    let lth = None;
-    // let lth_bytes = last_tree_head.ok_or(invalid_request("LTH is invalid"));
-    // let restored_lth = LastTreeHead::try_from(&lth_bytes)
-    //     .map_err(|_| "Invalid LTH")?;
-
-    let dummy_tuple = (TreeHead::default(), [0u8; 32]);
-
-    let actual_ldth: LastTreeHead = if let Some(bytes) = last_distinguished_tree_head {
-        let stored = StoredTreeHead::decode(&*bytes)
-            .map_err(|_| invalid_request("LDTH Decode Failed"))?;
-        stored.into_last_tree_head().ok_or(invalid_request("LDTH Convert Failed"))?
-    } else {
-        dummy_tuple
-    };
-    // let ldth_bytes = last_distinguished_tree_head.ok_or(invalid_request("LDTH is invalid"));
-    // let restored_ldth = LastTreeHead::try_from(&ldth_bytes)
-    //     .map_err(|_| "Invalid LDTH")?;
-
-
-    let context = MonitorContext {
-        last_tree_head: lth,
-        last_distinguished_tree_head: &actual_ldth,
-        data: HashMap::new(), // I will not dare to do the JNI voodoo on hashmaps now...
-    };
-
-    verify_monitor(&config, &restored_req, &restored_res, context, SystemTime::now()).expect("TODO: panic message");
-    Ok(vec![])
 }
 
 #[bridge_io(TokioAsyncContext)]

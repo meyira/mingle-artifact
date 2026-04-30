@@ -7,9 +7,10 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 
-	"github.com/signalapp/keytransparency/cmd/internal/util"
 	"github.com/signalapp/keytransparency/cmd/kt-server/pb"
+	"github.com/signalapp/keytransparency/cmd/shared"
 	"github.com/signalapp/keytransparency/tree/transparency"
 	tpb "github.com/signalapp/keytransparency/tree/transparency/pb"
 )
@@ -20,15 +21,25 @@ func constructSearchRequest(args QueryArgs) *pb.SearchRequest {
 		AciIdentityKey: args.AciIdentityKey,
 		Consistency:    consistency(last),
 	}
+
+	if args.AciVersion != nil {
+		req.AciVersion = args.AciVersion
+	}
 	if args.E164 != "" {
 		req.E164SearchRequest = &pb.E164SearchRequest{
 			E164:                  &args.E164,
 			UnidentifiedAccessKey: args.UnidentifiedAccessKey,
 		}
+		if args.E164Version != nil {
+			req.E164Version = args.E164Version
+		}
 	}
 
 	if args.UsernameHash != nil {
 		req.UsernameHash = args.UsernameHash
+		if args.UsernameHashVersion != nil {
+			req.UsernameHashVersion = args.UsernameHashVersion
+		}
 	}
 	return req
 }
@@ -40,25 +51,28 @@ func handleSearch(client pb.KeyTransparencyQueryServiceClient) {
 
 	printFullTreeHead(res.TreeHead)
 	p.Printf("ACI search response: \n")
+
 	p.Printf("VRF: %x\n\n", res.Aci.VrfProof)
 	printSearchProof(res.Aci.Search)
 	p.Printf("Opening: %x\n", res.Aci.Opening)
-	p.Printf("Value: %x\n\n", res.Aci.Value.Value)
+	p.Printf("Value: %s\n\n", base64.StdEncoding.EncodeToString(res.Aci.Value.Value[1:]))
 
 	if res.E164 != nil {
 		p.Printf("E164 search response: \n")
+
 		p.Printf("VRF: %x\n\n", res.E164.VrfProof)
 		printSearchProof(res.E164.Search)
 		p.Printf("Opening: %x\n", res.E164.Opening)
-		p.Printf("Value: %x\n\n", res.E164.Value.Value)
+		p.Printf("Value: %x\n\n", res.E164.Value.Value[1:])
 	}
 
 	if res.UsernameHash != nil {
 		p.Printf("Username hash search response: \n")
+
 		p.Printf("VRF: %x\n\n", res.UsernameHash.VrfProof)
 		printSearchProof(res.UsernameHash.Search)
 		p.Printf("Opening: %x\n", res.UsernameHash.Opening)
-		p.Printf("Value: %x\n\n", res.UsernameHash.Value.Value)
+		p.Printf("Value: %x\n\n", res.UsernameHash.Value.Value[1:])
 	}
 
 	if *configFile == "" {
@@ -74,20 +88,20 @@ func handleSearch(client pb.KeyTransparencyQueryServiceClient) {
 	}
 
 	allVerificationsSuccessful := true
-	if err := transparency.VerifySearch(newStore(), createIdentifierSearchRequest(util.AciPrefix, args.Aci), createTreeSearchResponse(res.Aci, res.TreeHead)); err != nil {
+	if err := transparency.VerifySearch(newStore(), createIdentifierSearchRequest(shared.AciPrefix, args.Aci, args.AciVersion), createTreeSearchResponse(res.Aci, res.TreeHead)); err != nil {
 		p.Printf("ACI verification failed: %v\n", err)
 		allVerificationsSuccessful = false
 	}
 
 	if res.E164 != nil {
-		if err := transparency.VerifySearch(newStore(), createIdentifierSearchRequest(util.NumberPrefix, []byte(*e164)), createTreeSearchResponse(res.E164, res.TreeHead)); err != nil {
+		if err := transparency.VerifySearch(newStore(), createIdentifierSearchRequest(shared.NumberPrefix, []byte(*e164), args.E164Version), createTreeSearchResponse(res.E164, res.TreeHead)); err != nil {
 			p.Printf("E164 verification failed: %v\n", err)
 			allVerificationsSuccessful = false
 		}
 	}
 
 	if res.UsernameHash != nil {
-		if err := transparency.VerifySearch(newStore(), createIdentifierSearchRequest(util.UsernameHashPrefix, args.UsernameHash), createTreeSearchResponse(res.UsernameHash, res.TreeHead)); err != nil {
+		if err := transparency.VerifySearch(newStore(), createIdentifierSearchRequest(shared.UsernameHashPrefix, args.UsernameHash, args.UsernameHashVersion), createTreeSearchResponse(res.UsernameHash, res.TreeHead)); err != nil {
 			p.Printf("Username hash verification failed: %v\n", err)
 			allVerificationsSuccessful = false
 		}
@@ -98,15 +112,19 @@ func handleSearch(client pb.KeyTransparencyQueryServiceClient) {
 	}
 }
 
-func createIdentifierSearchRequest(prefix byte, identifier []byte) *tpb.TreeSearchRequest {
-	return createTreeSearchRequest(append([]byte{prefix}, identifier...))
+func createIdentifierSearchRequest(prefix byte, identifier []byte, version *uint32) *tpb.TreeSearchRequest {
+	return createTreeSearchRequest(append([]byte{prefix}, identifier...), version)
 }
 
-func createTreeSearchRequest(key []byte) *tpb.TreeSearchRequest {
-	return &tpb.TreeSearchRequest{
+func createTreeSearchRequest(key []byte, version *uint32) *tpb.TreeSearchRequest {
+	req := &tpb.TreeSearchRequest{
 		SearchKey:   key,
 		Consistency: consistency(last),
 	}
+	if version != nil {
+		req.Version = version
+	}
+	return req
 }
 
 func createTreeSearchResponse(response *pb.CondensedTreeSearchResponse, treeHead *tpb.FullTreeHead) *tpb.TreeSearchResponse {

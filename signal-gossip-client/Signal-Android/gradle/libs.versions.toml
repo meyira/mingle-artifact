@@ -21,6 +21,7 @@ nanohttpd = "2.3.1"
 navigation-safe-args-gradle-plugin = "2.8.5"
 protobuf-gradle-plugin = "0.9.0"
 ktlint = "12.1.1"
+espresso-contrib = "3.7.0"
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "android-gradle-plugin" }
@@ -187,6 +188,7 @@ jknack-handlebars = "com.github.jknack:handlebars:4.0.7"
 mp4parser-isoparser = { module = "org.mp4parser:isoparser", version.ref = "mp4parser" }
 mp4parser-streaming = { module = "org.mp4parser:streaming", version.ref = "mp4parser" }
 mp4parser-muxer = { module = "org.mp4parser:muxer", version.ref = "mp4parser" }
+androidx-espresso-contrib = { group = "androidx.test.espresso", name = "espresso-contrib", version.ref = "espresso-contrib" }
 
 [bundles]
 media3 = ["androidx-media3-exoplayer", "androidx-media3-session", "androidx-media3-ui"]

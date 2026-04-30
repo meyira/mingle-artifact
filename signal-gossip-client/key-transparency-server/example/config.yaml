@@ -34,7 +34,9 @@ api:
   # fake:
   #   count: 1
   #   interval: 10s
-  distinguished: 1m
+  # This distinguished value is intentionally large for local development purposes: it's easier to adjust this value down
+  # and re-run the local server than to find that the tree accidentally grew too big and start the entire log over again.
+  distinguished: 1000h
   auditors:
     example-auditor-1: abcdef1234abcdef1234abcdef1234abcdef1234abcdef1234abcdef1234abcd
     example-auditor-2: abcdef1234abcdef1234abcdef1234abcdef1234abcdef1234abcdef1234abcd

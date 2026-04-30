@@ -26,3 +26,4 @@ read -r
 
 $KT_CLIENT update aci "$ACI_UUID_1" "$PUBLIC_KEY_1"
 # $KT_CLIENT update e164 "$E164_NUMBER_1" "$ACI_UUID_1"
+$KT_CLIENT update aci "$ACI_UUID_2" "$PUBLIC_KEY_2"

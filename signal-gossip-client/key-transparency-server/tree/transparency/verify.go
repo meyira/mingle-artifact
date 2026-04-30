@@ -178,7 +178,11 @@ func verifySearch(storage ClientStorage, req *pb.TreeSearchRequest, res *pb.Tree
 	stepMap := make(map[uint64]*pb.ProofStep)
 
 	var guide *proofGuide
-	guide = mostRecentProofGuide(res.Search.Pos, treeSize)
+	if req.Version == nil {
+		guide = mostRecentProofGuide(res.Search.Pos, treeSize)
+	} else {
+		guide = versionProofGuide(*req.Version, res.Search.Pos, treeSize)
+	}
 	for {
 		done, err := guide.done()
 		if err != nil {
@@ -190,6 +194,8 @@ func verifySearch(storage ClientStorage, req *pb.TreeSearchRequest, res *pb.Tree
 		}
 		id := guide.next()
 		step := res.Search.Steps[i]
+
+		// Unlike during search proof generation, we use the actual version of the index during search proof verification.
 		guide.insert(id, step.Prefix.Counter)
 
 		// Evaluate the prefix proof and combine it with the commitment to get

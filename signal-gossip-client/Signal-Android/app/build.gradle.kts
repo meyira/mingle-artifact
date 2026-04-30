@@ -89,7 +89,7 @@ android {
   ndkVersion = signalNdkVersion
 
   flavorDimensions += listOf("distribution", "environment")
-  testBuildType = "instrumentation"
+  testBuildType = "debug"
 
   android.bundle.language.enableSplit = false
 
@@ -163,6 +163,10 @@ android {
         "META-INF/proguard/androidx-annotations.pro",
         "**/*.dylib",
         "**/*.dll"
+      )
+      pickFirsts += setOf(
+        "MANIFEST.MF",
+        "META-INF/MANIFEST.MF"
       )
     }
   }
@@ -255,7 +259,7 @@ android {
     }
 
     testInstrumentationRunner = "org.thoughtcrime.securesms.testing.SignalTestRunner"
-    testInstrumentationRunnerArguments["clearPackageData"] = "true"
+//    testInstrumentationRunnerArguments["clearPackageData"] = "true"
   }
 
   buildTypes {
@@ -489,6 +493,7 @@ android {
 }
 
 dependencies {
+  testImplementation(libs.androidx.espresso.contrib)
   lintChecks(project(":lintchecks"))
   ktlintRuleset(libs.ktlint.twitter.compose)
   coreLibraryDesugaring(libs.android.tools.desugar)
@@ -645,6 +650,7 @@ dependencies {
   androidTestImplementation(libs.androidx.compose.ui.test.junit4)
   androidTestImplementation(testLibs.androidx.test.ext.junit)
   androidTestImplementation(testLibs.espresso.core)
+  androidTestImplementation(testLibs.espresso.contrib)
   androidTestImplementation(testLibs.androidx.test.core)
   androidTestImplementation(testLibs.androidx.test.core.ktx)
   androidTestImplementation(testLibs.androidx.test.ext.junit.ktx)

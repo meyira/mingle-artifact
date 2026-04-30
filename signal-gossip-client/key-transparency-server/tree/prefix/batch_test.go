@@ -118,12 +118,12 @@ func TestLookupPattern(t *testing.T) {
 
 	// Insert a bunch of random keys.
 	var key []byte
-	for version := uint64(0); version < 300; version++ {
+	for treeSize := uint64(0); treeSize < 300; treeSize++ {
 		temp := random()
-		_, _, err := tree.Insert(version, temp, make([]byte, 32), false)
+		_, _, err := tree.Insert(treeSize, temp, make([]byte, 32), false)
 		if err != nil {
 			t.Fatal(err)
-		} else if version == 9 {
+		} else if treeSize == 9 {
 			key = temp
 		}
 	}
@@ -131,7 +131,7 @@ func TestLookupPattern(t *testing.T) {
 	for i := 0; i < 100; i++ {
 		store.cache = make(map[uint64][]byte)
 
-		// Choose two random versions to do lookups in.
+		// Choose two random tree sizes to do lookups in.
 		ver1 := uint64(mrand.Intn(290) + 10)
 		ver2 := uint64(mrand.Intn(290) + 10)
 		if ver1 == ver2 {

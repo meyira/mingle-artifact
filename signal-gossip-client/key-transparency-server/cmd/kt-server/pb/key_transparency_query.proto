@@ -48,6 +48,9 @@ message SearchRequest {
   optional bytes username_hash = 3;
   optional E164SearchRequest e164_search_request = 4;
   transparency.Consistency consistency = 5;
+  optional uint32 aci_version = 6;
+  optional uint32 e164_version = 7;
+  optional uint32 username_hash_version = 8;
 }
 
 // E164SearchRequest contains the data that the user must provide when looking up an E164

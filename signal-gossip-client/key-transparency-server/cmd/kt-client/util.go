@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -21,10 +22,13 @@ import (
 
 type QueryArgs struct {
 	Aci                   []byte
+	AciVersion            *uint32
 	AciIdentityKey        []byte
 	E164                  string
+	E164Version           *uint32
 	UnidentifiedAccessKey []byte
 	UsernameHash          []byte
+	UsernameHashVersion   *uint32
 }
 
 func extractQueryArgs(command string) QueryArgs {
@@ -57,12 +61,19 @@ func extractQueryArgs(command string) QueryArgs {
 		checkErr("decoding base64url encoding for username hash", err)
 	}
 
+	aciVersion := parseVersion(aciVersionStr, "aci version")
+	e164Version := parseVersion(e164VersionStr, "e164 version")
+	usernameHashVersion := parseVersion(usernameHashVersionStr, "usernameHash version")
+
 	return QueryArgs{
 		aciBytes,
+		aciVersion,
 		aciIdentityKeyBytes,
 		*e164,
+		e164Version,
 		unidentifiedAccessKeyBytes,
 		usernameHashBytes,
+		usernameHashVersion,
 	}
 }
 
@@ -142,4 +153,17 @@ func checkErr(context string, err error) {
 		_, _ = os.Stderr.WriteString(fmt.Sprintf("%s: %v\n", context, err))
 		os.Exit(1)
 	}
+}
+
+func parseVersion(versionStr *string, argName string) *uint32 {
+	var version *uint32
+	if *versionStr != "" {
+		val, err := strconv.ParseUint(*versionStr, 10, 32)
+		if err != nil {
+			log.Fatalf("invalid %s: %v", argName, err)
+		}
+		v := uint32(val)
+		version = &v
+	}
+	return version
 }

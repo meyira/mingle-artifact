@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/hashicorp/go-metrics"
+	"github.com/signalapp/keytransparency/cmd/shared"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -25,6 +26,9 @@ import (
 const (
 	AuditorNameContextKey = "auditor-name"
 	HeaderValueContextKey = "header-value"
+	AciLabel              = "aci"
+	NumberLabel           = "e164"
+	UsernameHashLabel     = "username_hash"
 )
 
 func verifyMappedValueConstantTime(mappedValue, expectedValue []byte) error {
@@ -163,4 +167,26 @@ func validateAuthorizedHeaders(authorizedHeaders map[string][]string, md metadat
 
 func isTombstoneUpdate(updateRequest *pb.UpdateRequest) bool {
 	return bytes.Equal(updateRequest.GetValue(), tombstoneBytes)
+}
+
+func getSearchKeyType(searchKeyBytes []byte) (string, error) {
+	if len(searchKeyBytes) == 0 {
+		return "", fmt.Errorf("empty search key")
+	}
+
+	switch searchKeyBytes[0] {
+	case shared.AciPrefix:
+		return AciLabel, nil
+	case shared.NumberPrefix:
+		return NumberLabel, nil
+	case shared.UsernameHashPrefix:
+		return UsernameHashLabel, nil
+	default:
+		return "", fmt.Errorf("unknown search key type: %v", searchKeyBytes[0])
+	}
+}
+
+func GetSearchKeyTypeLabel(searchKeyBytes []byte) (metrics.Label, error) {
+	searchKeyType, err := getSearchKeyType(searchKeyBytes)
+	return metrics.Label{Name: "search_key_type", Value: searchKeyType}, err
 }

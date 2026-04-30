@@ -5,6 +5,8 @@
 
 package org.whispersystems.signalservice.api.message
 
+import com.fasterxml.jackson.databind.ObjectMapper
+import org.signal.core.util.logging.Log
 import org.whispersystems.signalservice.api.NetworkResult
 import org.whispersystems.signalservice.api.crypto.SealedSenderAccess
 import org.whispersystems.signalservice.api.push.ServiceId
@@ -56,6 +58,14 @@ class MessageApi(
    * - 428: Sender proof required
    */
   fun sendMessage(messageList: OutgoingPushMessageList, sealedSenderAccess: SealedSenderAccess?, story: Boolean): NetworkResult<SendMessageResponse> {
+    try {
+      val mapper = ObjectMapper()
+      val payloadBytes = mapper.writeValueAsBytes(messageList)
+      val payloadSizeInBytes = payloadBytes.size
+      Log.d("GOSSIP", "Payload size of the OutgoingPushMessageList: $payloadSizeInBytes Bytes")
+    } catch (e: Exception) {
+      Log.e("GOSSIP", "Error while calcuating the size", e)
+    }
     val request = WebSocketRequestMessage.put("/v1/messages/${messageList.destination}?story=${story.toQueryParam()}", messageList)
 
     return if (sealedSenderAccess == null) {

@@ -1,0 +1,17 @@
+services:
+  kt-server:
+    build:
+      context: .
+      dockerfile: ./docker/Dockerfile
+      args:
+        GO_VERSION: 1.25 
+    ports:
+      - "8080:8080"
+      - "8081:8081"
+      - "8082:8082"
+      - "8083:8083"
+      - "8084:8084"
+    volumes:
+      - ./my-config.yaml:/etc/kt-server/config.yaml:Z
+    command: ["-config", "/etc/kt-server/config.yaml"]
+

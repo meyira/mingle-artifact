@@ -12,13 +12,10 @@ import org.signal.libsignal.internal.TokioAsyncContext
 import org.signal.libsignal.keytrans.KeyTransparencyException
 import org.signal.libsignal.keytrans.TestStore
 import org.signal.libsignal.net.KeyTransparency.MonitorMode
-import org.signal.libsignal.protocol.IdentityKey
-import org.signal.libsignal.protocol.ServiceId
-import org.signal.libsignal.protocol.util.Hex
-import java.util.Base64
+import signal.keytrans.Store
 import java.util.Deque
-import java.util.UUID
 import java.util.concurrent.ExecutionException
+import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 
@@ -76,14 +73,14 @@ class KeyTransparencyClientTest {
 
   @Test
   @Throws(Exception::class)
-  fun updateDistinguishedStagingIntegration() {
+  fun fetchDistinguishedStagingIntegration() {
     Assume.assumeTrue(INTEGRATION_TESTS_ENABLED)
 
     val net = Network(Network.Environment.STAGING, USER_AGENT)
     val ktClient = connectAndGetClient(net).get()
 
     val store = TestStore()
-    ktClient.updateDistinguished(store).get()
+    ktClient.fetchDistinguished(store).get()
 
     Assert.assertTrue(store.getLastDistinguishedTreeHead().isPresent)
   }
@@ -170,7 +167,7 @@ class KeyTransparencyClientTest {
       )
 
     val store = TestStore()
-    val responseFuture = chat.keyTransparencyClient().updateDistinguished(store)
+    val responseFuture = chat.keyTransparencyClient().fetchDistinguished(store)
 
     val (_, requestId) = remote.getNextIncomingRequest().get()
     remote.sendResponse(requestId, statusCode, message, headers, byteArrayOf())
@@ -192,103 +189,37 @@ class KeyTransparencyClientTest {
    * Make sure to start the KT Server in the repo
    */
   @Test
-  fun testUpdateDistinguishedGrpcCall() {
+  fun testFetchDistinguishedGrpcCall() {
     val store = TestStore()
     val ktClient = KeyTransparencyClientGrpc( "localhost", 8080)
-    val response = ktClient.updateDistinguishedGrpc(store).get()
+    val response = ktClient.fetchDistinguishedGrpc(store).get()
     println(response)
     assert(response != null)
   }
 
   @Test
-  fun testUpdateDistinguishedGrpcCallWithConsistencyProofs() {
+  fun testFetchDistinguishedGrpcCallWithConsistencyProofs() {
     val store = TestStore()
     val ktClient = KeyTransparencyClientGrpc( "localhost", 8080)
-    val response = ktClient.updateDistinguishedGrpc(store).get()
+    val response = ktClient.fetchDistinguishedGrpc(store).get()
 //    println(response)
     assert(response != null)
+    val sth = Store.StoredTreeHead.parseFrom(store.lastDistinguishedTreeHead)
+    assertEquals(32, sth.root.size())
+
     Thread.sleep(3000);
 
-    val response2 = ktClient.updateDistinguishedGrpc(store).get()
+    val response2 = ktClient.fetchDistinguishedGrpc(store).get()
     println(response2)
     assert(response2 != null)
-//    assert(response2.treeHead.fullAuditorTreeHeadsCount != 0)
-    // Well. THE SERVER DOES NOT SEND CONSISTENCY PROOFS, WHAT!?
 
     println("Amount of ConsistencyProofCount:" + response2.treeHead.lastCount)
     assert(response2.treeHead.lastCount != 0)
-
-    // TODO check if the response contains consistency proofs
-    // works if the KT server has a setting where new entries are created within 3 seconds
-    // distinguished: 1s
   }
-
-  @Test
-  fun testSearchGrpcCall() {
-    val store = TestStore()
-    val ktClient = KeyTransparencyClientGrpc( "localhost", 8080)
-
-    val aci = KeyTransparencyTest.TEST_ACI
-
-    val serverKeyHex = "dc711808c2cf66d5e6a33ce41f27d69d942d2e1ff4db22d39b42d2eff8d09746"
-    val rawServerBytes = Hex.fromStringCondensedAssert(serverKeyHex)
-
-    val matchingHash = KeyTransparencyTest.TEST_USERNAME_HASH
-
-    ktClient.searchGrpc(
-      aci,
-      KeyTransparencyTest.TEST_ACI_IDENTITY_KEY,
-      "",
-      null,
-      matchingHash,
-      store
-    ).get()
-  }
-
-  @Test
-  fun testSearchGrpcCallWithConsistencyProofs() {
-    val store = TestStore()
-    val ktClient = KeyTransparencyClientGrpc( "localhost", 8080)
-    val response = ktClient.updateDistinguishedGrpc(store).get()
-    println(response)
-    assert(response != null)
-    Thread.sleep(3000);
-
-    val response2 = ktClient.updateDistinguishedGrpc(store).get()
-    assert(response2 != null)
-    // TODO check if the response contains consistency proofs
-    // works if the KT server
-    // distinguished: 1s
-  }
-
-  @Test
-  fun testMonitorGrpcCall() {
-    // Before that: add new input to the KT Server
-    // export ACI_UUID_1=$(uuidgen)
-    // export PUBLIC_KEY_1=$(openssl rand -base64 32)
-    // go run ./cmd/kt-client update aci "$ACI_UUID_1" "$PUBLIC_KEY_1"
-    // go run ./cmd/kt-client search "$ACI_UUID_1" "$PUBLIC_KEY_1"
-
-    val store = TestStore()
-    val ktClient = KeyTransparencyClientGrpc( "localhost", 8080)
-
-    val aci = KeyTransparencyTest.TEST_ACI
-
-    val response2 = ktClient.monitorGrpc(
-      MonitorMode.SELF,
-      aci,
-      KeyTransparencyTest.TEST_ACI_IDENTITY_KEY,
-      "",
-      null,
-      null,
-      store
-    ).get()
-    assert(response2 != null)
-  }
-
   companion object {
     private const val USER_AGENT = "test"
     private val INTEGRATION_TESTS_ENABLED = true
+// Activated the checks directly to circumvent issues with activating integration tests via test env vars
 //      TestEnvironment.get("LIBSIGNAL_TESTING_RUN_NONHERMETIC_TESTS") != null &&
 //        TestEnvironment.get("LIBSIGNAL_TESTING_IGNORE_KT_TESTS") == null
   }

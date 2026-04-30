@@ -351,6 +351,7 @@ pub trait UnauthenticatedChatApi {
         last_distinguished_tree_head: &LastTreeHead,
     ) -> impl Future<Output = Result<AccountData, RequestError<Error>>> + Send;
 }
+
 #[derive(Eq, Debug, PartialEq, Clone, Copy)]
 pub enum MonitorMode {
     MonitorSelf,

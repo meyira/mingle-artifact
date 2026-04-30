@@ -26,11 +26,8 @@ import org.signal.libsignal.protocol.ServiceId;
 public interface Store {
   Optional<byte[]> getLastDistinguishedTreeHead();
 
-  // KT-Project: the DistinguishedResponse is saved
   void setLastDistinguishedTreeHead(byte[] lastDistinguishedTreeHead);
 
-  // Gossiping-KT-Project: contains entire SearchResponse objects.
-  // TODO remove not needed elements to reduce memory consumption in terms of O-notation
   Optional<byte[]> getAccountData(ServiceId.Aci aci);
 
   void setAccountData(ServiceId.Aci aci, byte[] data);

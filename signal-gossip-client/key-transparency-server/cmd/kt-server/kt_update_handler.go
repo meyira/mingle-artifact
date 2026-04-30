@@ -7,6 +7,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/signalapp/keytransparency/cmd/internal/util"
 	"github.com/signalapp/keytransparency/cmd/kt-server/pb"
 	"github.com/signalapp/keytransparency/db"
+	"github.com/signalapp/keytransparency/tree/transparency"
 	tpb "github.com/signalapp/keytransparency/tree/transparency/pb"
 )
 
@@ -63,11 +65,25 @@ func (h *KtUpdateHandler) update(ctx context.Context, req *tpb.UpdateRequest, ti
 	select {
 	case res := <-ch:
 		if res.err != nil {
+			var internalErrReason string
+			switch {
+			case errors.Is(res.err, transparency.ErrTombstoneIndexNotFound):
+				internalErrReason = "tombstone_index_not_found"
+			case errors.Is(res.err, transparency.ErrTombstoneUnexpectedPreUpdateValue):
+				internalErrReason = "tombstone_unexpected_pre_update_value"
+			case errors.Is(res.err, transparency.ErrDuplicateUpdate):
+				internalErrReason = "duplicate_update"
+			}
+
+			if internalErrReason != "" {
+				searchKeyTypeLabel, err := GetSearchKeyTypeLabel(req.SearchKey)
+				if err != nil {
+					return nil, err
+				}
+				metrics.IncrCounterWithLabels([]string{"internal_update_error"}, 1, []metrics.Label{searchKeyTypeLabel, {Name: "reason", Value: internalErrReason}})
+				return nil, nil
+			}
 			return nil, res.err
-		} else if res.res == nil {
-			// In the case of tombstone updates, it is an expected case to get back
-			// no update response and no error.
-			return nil, nil
 		}
 		if req.ReturnUpdateResponse {
 			return tree.PostUpdate(res.res)

@@ -7,7 +7,6 @@
 //! [libsignal-net-grpc](libsignal_net_grpc).
 
 mod usernames;
-mod keytrans;
 
 use std::future::Future;
 

@@ -10,6 +10,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 
+import javax.annotation.Nullable;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.ByteBuffer;
@@ -47,17 +48,7 @@ record Account(
         Arrays.equals(usernameHash, account.usernameHash);
   }
 
-  @Override
-  public String toString() {
-    return "Account{" +
-        "number='" + number + '\'' +
-        ", aci=" + Arrays.toString(aci) +
-        ", aciIdentityKey=" + Arrays.toString(aciIdentityKey) +
-        ", usernameHash=" + Arrays.toString(usernameHash) +
-        '}';
-  }
-
-  public record Pair(Account prev, Account next) {
+  public record Pair(@Nullable Account prev, @Nullable Account next) implements KinesisRecord<Account> {
 
     /** Return a partition key used by Kinesis to group distributed updates.
      *

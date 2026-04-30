@@ -7,7 +7,7 @@ use std::num::NonZero;
 
 use sha2::{Digest, Sha256};
 
-type Hash = [u8; 32];
+pub(crate) type Hash = [u8; 32];
 
 mod math {
     // This module implements functions for navigating a Log Tree. Note that the

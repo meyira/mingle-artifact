@@ -12,9 +12,8 @@ import (
 	"log"
 
 	"github.com/google/uuid"
-
-	"github.com/signalapp/keytransparency/cmd/internal/util"
 	"github.com/signalapp/keytransparency/cmd/kt-server/pb"
+	"github.com/signalapp/keytransparency/cmd/shared"
 	"github.com/signalapp/keytransparency/tree/transparency"
 	tpb "github.com/signalapp/keytransparency/tree/transparency/pb"
 )
@@ -35,7 +34,7 @@ func handleUpdate(client pb.KeyTransparencyTestServiceClient) {
 		aciBytes, err := aci.MarshalBinary()
 		checkErr("getting UUID bytes", err)
 
-		updateKey = append([]byte{util.AciPrefix}, aciBytes...)
+		updateKey = append([]byte{shared.AciPrefix}, aciBytes...)
 
 		aciIdentityKeyBytes, err := base64.StdEncoding.DecodeString(flag.Arg(3))
 		checkErr("decoding base64 encoding for ACI identity key", err)
@@ -47,7 +46,7 @@ func handleUpdate(client pb.KeyTransparencyTestServiceClient) {
 		} else if flag.Arg(3) == "" {
 			log.Fatal("No update value given. Usage: kt-client update e164 <e164_string> <UUID>")
 		}
-		updateKey = append([]byte{util.NumberPrefix}, []byte(flag.Arg(2))...)
+		updateKey = append([]byte{shared.NumberPrefix}, []byte(flag.Arg(2))...)
 
 		aci, err := uuid.Parse(flag.Arg(3))
 		checkErr("invalid UUID string for ACI", err)
@@ -65,7 +64,7 @@ func handleUpdate(client pb.KeyTransparencyTestServiceClient) {
 		usernameHashBytes, err := base64.URLEncoding.DecodeString(flag.Arg(2))
 		checkErr("decoding base64url encoding for username hash", err)
 
-		updateKey = append([]byte{util.UsernameHashPrefix}, usernameHashBytes...)
+		updateKey = append([]byte{shared.UsernameHashPrefix}, usernameHashBytes...)
 
 		aci, err := uuid.Parse(flag.Arg(3))
 		checkErr("invalid UUID string for ACI", err)

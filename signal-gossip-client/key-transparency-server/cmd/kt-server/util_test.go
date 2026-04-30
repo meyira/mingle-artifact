@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/signalapp/keytransparency/cmd/internal/config"
+	"github.com/signalapp/keytransparency/cmd/shared"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -186,5 +187,64 @@ func TestParseRpcMethodString_Failure(t *testing.T) {
 		assert.Error(t, err)
 		assert.Empty(t, service)
 		assert.Empty(t, method)
+	}
+}
+
+func TestGetSearchKeyType(t *testing.T) {
+	tests := []struct {
+		name           string
+		searchKeyBytes []byte
+		expectedType   string
+		expectError    bool
+	}{
+		{
+			name:           "ACI prefix returns AciLabel",
+			searchKeyBytes: append([]byte{shared.AciPrefix}, validAci1...),
+			expectedType:   AciLabel,
+			expectError:    false,
+		},
+		{
+			name:           "UsernameHash prefix returns UsernameHashLabel",
+			searchKeyBytes: append([]byte{shared.UsernameHashPrefix}, validUsernameHash1...),
+			expectedType:   UsernameHashLabel,
+			expectError:    false,
+		},
+		{
+			name:           "Number prefix returns NumberLabel",
+			searchKeyBytes: append([]byte{shared.NumberPrefix}, []byte(validPhoneNumber1)...),
+			expectedType:   NumberLabel,
+			expectError:    false,
+		},
+		{
+			name:           "empty byte slice returns error",
+			searchKeyBytes: []byte{},
+			expectedType:   "",
+			expectError:    true,
+		},
+		{
+			name:           "unrecognized prefix returns error",
+			searchKeyBytes: append([]byte{'s'}, validAci1...),
+			expectedType:   "",
+			expectError:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := getSearchKeyType(tt.searchKeyBytes)
+
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("expected error but got none")
+				}
+			} else {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+				if result != tt.expectedType {
+					t.Errorf("expected type %q, got %q", tt.expectedType, result)
+				}
+			}
+		})
 	}
 }

@@ -102,6 +102,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import kt_query.KtQuery;
+import signal.keytrans.Wire;
+import transparency.Transparency;
 
 public abstract class PushSendJob extends SendJob {
 
@@ -500,13 +502,27 @@ public abstract class PushSendJob extends SendJob {
     return getBodyRanges(message.getBodyRanges());
   }
 
-  protected @Nullable Optional<byte[]> getKeyTransparencyField(@NonNull OutgoingMessage message) throws InvalidProtocolBufferException, ExecutionException, InterruptedException {
+  protected @Nullable Optional<byte[]> getKeyTransparencyField(@NonNull OutgoingMessage message)
+          throws InvalidProtocolBufferException, ExecutionException, InterruptedException {
       Store store = AppDependencies.getKeyTransparencyStore();
-      KtQuery.DistinguishedResponse res =  AppDependencies.getKeyTransparencyClient().updateDistinguishedGrpc(store).get();
-      Log.d("GOSSIP", "Tree head: " + res.getDistinguished());
-      Log.d("GOSSIP", "Tree head set in the first plase? : " + res.hasDistinguished());
-      return Optional.of(res.toByteArray());
+      AppDependencies.getKeyTransparencyClient().fetchDistinguishedGrpc(store).get();
 
+      Optional<byte[]> payload = Optional.empty();
+      if (store.getLastDistinguishedTreeHead().isPresent()) {
+          signal.keytrans.Store.StoredTreeHead sth = signal.keytrans.Store.StoredTreeHead
+                  .parseFrom(store.getLastDistinguishedTreeHead().get());
+          // For testing purposes, one could manipulate any of these entries and see what happens
+          // on the recipient's side.
+          payload = Optional.of(sth.toByteArray());
+          Log.d("GOSSIP", "Sending Gossip (Tree Size: "
+                  + sth.getTreeHead().getTreeSize() + ", Root Hash: "
+                  + sth.getRoot().toString() + ")");
+
+      } else {
+          Log.d("GOSSIP", "Sending nothing.");
+      }
+
+      return payload;
   }
 
   protected @Nullable List<BodyRange> getBodyRanges(@Nullable BodyRangeList bodyRanges) {

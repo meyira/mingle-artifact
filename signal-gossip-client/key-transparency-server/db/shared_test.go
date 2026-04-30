@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/kinbiko/jsonassert"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestSerializeNewStoredTreeHead(t *testing.T) {
@@ -52,6 +53,30 @@ func TestSerializeNewStoredTreeHead(t *testing.T) {
 
 	// go 1.24 requires a constant format string to Printf-like functions
 	jsonassert.New(t).Assertf(actualJsonString, "%s", expectedJsonString)
+}
+
+func TestDeserializeStoredTreeHeadWithNoAuditorHeads(t *testing.T) {
+	storedTreeHead := &storedTreeHead{
+		TreeHead: &TransparencyTreeHead{
+			TreeSize:  123,
+			Timestamp: 123456,
+			Signatures: []*Signature{
+				{random(32), random(32)},
+			},
+		},
+	}
+
+	bytes, err := json.Marshal(storedTreeHead)
+	if err != nil {
+		t.Fatal("expected no error marshaling stored tree head")
+	}
+
+	_, auditorHeads, err := deserializeStoredTreeHead(bytes)
+	if err != nil {
+		t.Fatal("expected no error deserializing stored tree head")
+	}
+
+	assert.NotNil(t, auditorHeads)
 }
 
 func random(numBytes int) []byte {

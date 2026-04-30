@@ -6,6 +6,7 @@
 package transparency
 
 import (
+	"slices"
 	"testing"
 )
 
@@ -67,6 +68,20 @@ func TestMostRecentProofGuide(t *testing.T) {
 	guide = mostRecentProofGuide(100, 701)
 	ids = executeGuide(guide, 100, 701, 700)
 	if ids[guide.final()] != 700 {
+		t.Fatal("wrong result returned")
+	}
+}
+
+func TestVersionProofGuide(t *testing.T) {
+	guide := versionProofGuide(1, 1, 28)
+	ids := executeGuide(guide, 1, 28, 17)
+	if !slices.Equal([]uint64{15, 23, 19, 17, 16}, ids) {
+		t.Fatal("wrong result returned")
+	}
+
+	guide = versionProofGuide(1, 1, 28)
+	ids = executeGuide(guide, 1, 28, 27)
+	if !slices.Equal([]uint64{15, 23, 27, 25, 26}, ids) {
 		t.Fatal("wrong result returned")
 	}
 }

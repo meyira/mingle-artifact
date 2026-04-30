@@ -12,5 +12,8 @@ func deserializeStoredTreeHead(raw []byte) (*TransparencyTreeHead, map[string]*A
 	if err := json.Unmarshal(raw, data); err != nil {
 		return nil, nil, err
 	}
+	if data.AuditorHeads == nil {
+		data.AuditorHeads = make(map[string]*AuditorTreeHead)
+	}
 	return data.TreeHead, data.AuditorHeads, nil
 }

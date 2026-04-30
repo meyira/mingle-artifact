@@ -294,6 +294,8 @@ public class IndividualSendJob extends PushSendJob {
         } catch (ExecutionException | InterruptedException e) {
             keyTransparencyField = Optional.empty();
             Log.e("GOSSIP", "Error occured. Signal could fail-open or fail-close", e);
+            android.os.Handler h = new android.os.Handler(android.os.Looper.getMainLooper());
+            h.post(() -> android.widget.Toast.makeText(context, "Error while fetching recent tree head (possible inconsistency or KT server is down)", android.widget.Toast.LENGTH_LONG).show());
         }
         SignalServiceDataMessage.Builder mediaMessageBuilder = SignalServiceDataMessage.newBuilder()
                                                                                      .withBody(message.getBody())

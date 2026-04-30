@@ -22,6 +22,7 @@ import org.signal.libsignal.protocol.message.SenderKeyDistributionMessage;
 import org.signal.libsignal.protocol.state.PreKeyBundle;
 import org.signal.libsignal.protocol.state.SessionRecord;
 import org.signal.libsignal.zkgroup.groupsend.GroupSendFullToken;
+import org.signal.libsignal.zkgroup.internal.ByteArray;
 import org.whispersystems.signalservice.api.attachment.AttachmentApi;
 import org.whispersystems.signalservice.api.crypto.AttachmentCipherStreamUtil;
 import org.whispersystems.signalservice.api.crypto.ContentHint;
@@ -474,6 +475,9 @@ public class SignalServiceMessageSender {
     }
 
     EnvelopeContent envelopeContent = EnvelopeContent.encrypted(content, contentHint, message.getGroupId());
+      Log.d("GOSSIP", "[" + message.getTimestamp() + "] Message: " + (message.getBody().isPresent() ? message.getBody().get().substring(0, message.getBody().get().length() > 20 ? 20 : message.getBody().get().length()) : -1 ));
+      Log.d("GOSSIP", "[" + message.getTimestamp() + "] Estimated Envelope Size: " + envelopeContent.size());
+      Log.d("GOSSIP", "[" + message.getTimestamp() + "] KT Payload Size: " + (message.getKeyTransparencyField().isPresent() ? message.getKeyTransparencyField().get().length : -1 ));
 
     long              timestamp = message.getTimestamp();
     SendMessageResult result    = sendMessage(recipient, sealedSenderAccess, timestamp, envelopeContent, false, null, sendEvents, urgent, false);
@@ -2002,7 +2006,13 @@ public class SignalServiceMessageSender {
         if (cancelationSignal != null && cancelationSignal.isCanceled()) {
           return SendMessageResult.canceledFailure(recipient);
         }
+          Log.d("GOSSIP", "[sendMessage][" + timestamp + "] Messages: " + messages.getMessages().size() + (content.getContent().get().dataMessage != null ? " (it's piggy-backing on a DataMessage)" : ""));
 
+          for (OutgoingPushMessage message : messages.getMessages()) {
+              int paddedCiphertextSize = message.content != null ? message.content.length() : 0;
+              int deviceId = message.getDestinationDeviceId();
+              Log.d("GOSSIP", "[sendMessage][" + timestamp + "] Padded Ciphertext for Device " + deviceId + ": " + paddedCiphertextSize + " Bytes");
+          }
         try {
           SendMessageResponse response = NetworkResultUtil.toMessageSendLegacy(messages.getDestination(), messageApi.sendMessage(messages, sealedSenderAccess, story));
           return SendMessageResult.success(recipient, messages.getDevices(), response.sentUnidentified(), response.getNeedsSync() || aciStore.isMultiDevice(), System.currentTimeMillis() - startTime, content.getContent());

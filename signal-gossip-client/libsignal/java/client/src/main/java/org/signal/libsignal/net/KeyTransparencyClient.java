@@ -5,22 +5,7 @@
 
 package org.signal.libsignal.net;
 
-import com.google.common.util.concurrent.FutureCallback;
-import com.google.common.util.concurrent.Futures;
-import com.google.common.util.concurrent.ListenableFuture;
-import com.google.common.util.concurrent.MoreExecutors;
-import com.google.protobuf.ByteString;
-import com.google.protobuf.InvalidProtocolBufferException;
-import io.grpc.ManagedChannel;
-import io.grpc.okhttp.OkHttpChannelBuilder;
-
-import java.io.IOException;
 import java.util.Optional;
-import java.util.concurrent.ExecutionException;
-
-import kt_query.KeyTransparencyQueryServiceGrpc;
-import kt_query.KtQuery;
-import org.jetbrains.annotations.NotNull;
 import org.signal.libsignal.internal.CompletableFuture;
 import org.signal.libsignal.internal.Native;
 import org.signal.libsignal.internal.NativeHandleGuard;
@@ -29,9 +14,6 @@ import org.signal.libsignal.keytrans.Store;
 import org.signal.libsignal.net.KeyTransparency.MonitorMode;
 import org.signal.libsignal.protocol.IdentityKey;
 import org.signal.libsignal.protocol.ServiceId;
-import org.signal.libsignal.protocol.util.Hex;
-import signal.keytrans.Wire;
-import transparency.Transparency;
 
 /**
  * Typed API to access the key transparency subsystem using an existing unauthenticated chat
@@ -66,30 +48,13 @@ public class KeyTransparencyClient {
   private final UnauthenticatedChatConnection chatConnection;
   private final Network.Environment environment;
 
-  private final ManagedChannel channel;
-  private final KeyTransparencyQueryServiceGrpc.KeyTransparencyQueryServiceFutureStub stub;
-  private static final String LOCAL_KT_SERVER_HOST = "localhost";
-  private static final int LOCAL_KT_SERVER_PORT = 8080;
-  // TODO think about a way to maintain a KeyTransparencyStore (Store.java)
-
   KeyTransparencyClient(
       UnauthenticatedChatConnection chat,
       TokioAsyncContext tokioAsyncContext,
       Network.Environment environment) {
-    this(chat, tokioAsyncContext, environment, LOCAL_KT_SERVER_HOST, LOCAL_KT_SERVER_PORT);
-  }
-
-  KeyTransparencyClient(
-      UnauthenticatedChatConnection chat,
-      TokioAsyncContext tokioAsyncContext,
-      Network.Environment environment,
-      String host,
-      int port) {
     this.chatConnection = chat;
     this.tokioAsyncContext = tokioAsyncContext;
     this.environment = environment;
-    this.channel = OkHttpChannelBuilder.forAddress(host, port).usePlaintext().build();
-    this.stub = KeyTransparencyQueryServiceGrpc.newFutureStub(channel);
   }
 
   /**
@@ -98,7 +63,7 @@ public class KeyTransparencyClient {
    * <p>Only ACI and ACI identity key are required to identify the account.
    *
    * <p>If the latest distinguished tree head is not present in the store, it will be requested from
-   * the server prior to performing the search via {@link #updateDistinguished}.
+   * the server prior to performing the search via {@link #fetchDistinguished}.
    *
    * <p>This is an asynchronous operation; all the exceptions occurring during communication with
    * the server will be wrapped in {@link java.util.concurrent.ExecutionException}.
@@ -149,7 +114,7 @@ public class KeyTransparencyClient {
       final Store store) {
     Optional<byte[]> lastDistinguishedTreeHead = store.getLastDistinguishedTreeHead();
     if (lastDistinguishedTreeHead.isEmpty()) {
-      return this.updateDistinguished(store)
+      return this.fetchDistinguished(store)
           .thenCompose(
               (ignored) ->
                   this.search(
@@ -179,7 +144,6 @@ public class KeyTransparencyClient {
               });
     }
   }
-
 
   /**
    * Request the latest distinguished tree head from the server and update it in the local store.
@@ -215,7 +179,7 @@ public class KeyTransparencyClient {
    *     state of the store.
    * @throws IllegalArgumentException if the store contains corrupted data.
    */
-  public CompletableFuture<Void> updateDistinguished(final Store store) {
+  public CompletableFuture<Void> fetchDistinguished(final Store store) {
     byte[] lastDistinguished = store.getLastDistinguishedTreeHead().orElse(null);
     try (NativeHandleGuard tokioContextGuard = this.tokioAsyncContext.guard();
         NativeHandleGuard chatConnectionGuard = new NativeHandleGuard(chatConnection)) {
@@ -248,7 +212,7 @@ public class KeyTransparencyClient {
    * </ul>
    *
    * <p>If the latest distinguished tree head is not present in the store, it will be requested from
-   * the server prior to performing the search via {@link #updateDistinguished}.
+   * the server prior to performing the search via {@link #fetchDistinguished}.
    *
    * <p>This is an asynchronous operation; all the exceptions occurring during communication with
    * the server will be wrapped in {@link java.util.concurrent.ExecutionException}.
@@ -301,7 +265,7 @@ public class KeyTransparencyClient {
       final Store store) {
     Optional<byte[]> lastDistinguishedTreeHead = store.getLastDistinguishedTreeHead();
     if (lastDistinguishedTreeHead.isEmpty()) {
-      return this.updateDistinguished(store)
+      return this.fetchDistinguished(store)
           .thenCompose(
               (ignored) ->
                   this.monitor(
@@ -331,6 +295,4 @@ public class KeyTransparencyClient {
               });
     }
   }
-
-
 }

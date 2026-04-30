@@ -13,6 +13,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"math"
 	"runtime"
 
 	"google.golang.org/grpc/codes"
@@ -25,10 +26,12 @@ import (
 
 const IndexLength = 32
 
-// SearchResult is the output from executing a search in a given version of the prefix tree for an index.
+// SearchResult is the output from executing a search in a specific prefix tree for an index.
 //
 // There are two use cases for searching the prefix tree:
-//  1. ["Indexing"] To find the log entry position of the most recent update to an index, along with the first update position.
+//  1. ["Indexing"] To find the log entry positions of:
+//  1. the first update, and
+//  2. the most recent update OR the update corresponding to the desired version.
 //     This allows the server to conduct a more efficient binary search in the *log tree* for that log entry position.
 //     In this use case, the server will always start out searching the latest log entry and will only use FirstUpdatePosition and LatestUpdatePosition
 //     from the search result.
@@ -40,14 +43,15 @@ type SearchResult struct {
 	// FirstUpdatePosition returns the log entry position of the first occurrence of this index in the given prefix tree.
 	FirstUpdatePosition uint64
 	// LatestUpdatePosition returns the log entry position of the most recent occurrence of the index in the given prefix tree.
+	// Note that the given prefix tree is not necessarily the one associated with latest log entry.
 	LatestUpdatePosition uint64
 
-	// Commitment returns the commitment associated with this version of the prefix
-	// tree. It may return nil if this version of the prefix tree was created by a fake update.
+	// Commitment returns the commitment associated with this prefix tree.
+	// It may return nil if this prefix tree was created by a fake update.
 	Commitment []byte
 	// Proof returns a proof of inclusion from the prefix tree leaf where the search terminated to the prefix tree root.
 	Proof [][]byte
-	// Counter returns how many times the index has been updated in the given version of the prefix tree.
+	// Counter returns how many times the index has been updated in this prefix tree.
 	Counter uint32
 }
 
@@ -66,13 +70,13 @@ func NewTree(aesKey []byte, tx db.PrefixStore) *Tree {
 }
 
 // BatchSearch returns an unexecuted search structure.
-func (t *Tree) BatchSearch(version uint64, index []byte) (*Search, error) {
-	if version == 0 {
+func (t *Tree) BatchSearch(treeSize uint64, index []byte) (*Search, error) {
+	if treeSize == 0 {
 		return nil, errors.New("tree is empty")
 	} else if len(index) != IndexLength {
 		return nil, fmt.Errorf("index length must be %v bytes", IndexLength)
 	}
-	return &Search{index: index, ptr: version - 1}, nil
+	return &Search{index: index, ptr: treeSize - 1}, nil
 }
 
 // BatchExec runs several searches in parallel, minimizing the number of
@@ -100,9 +104,40 @@ func (t *Tree) BatchExec(searches []*Search) ([]*SearchResult, error) {
 	return out, nil
 }
 
-// Search executes a search for `index` in the requested version of the tree.
-func (t *Tree) Search(version uint64, index []byte) (*SearchResult, error) {
-	search, err := t.BatchSearch(version, index)
+// SearchForVersion executes a search in the tree of the given size for the index with a counter value
+// equal to indexVersion.
+// The SearchResult returns the latest update position *in the last tree size that was searched*, which is not necessarily
+// the original treeSize.
+func (t *Tree) SearchForVersion(treeSize uint64, index []byte, indexVersion uint32) (*SearchResult, error) {
+	var res *SearchResult
+	nextTreeSizeToSearch := treeSize
+
+	// Search for the index with the requested indexVersion counter by recursively searching in earlier
+	// and earlier entries of the log for the most recent update to the given index, until we find the desired index version
+	// or we get back a "not found" error.
+	var err error
+	for {
+		res, err = t.Search(nextTreeSizeToSearch, index)
+		if err != nil {
+			return nil, fmt.Errorf("running versioned search: %w", err)
+		}
+
+		if res.Counter != indexVersion {
+			// Tree size is one-indexed, but positions are zero-indexed. For example,
+			// if index A's latest update position is 8, that means that that update was the 9th entry in the tree.
+			// So in the next iteration, we want to search in the tree with 8 entries for the latest update to index A.
+			nextTreeSizeToSearch = res.LatestUpdatePosition
+		} else {
+			break
+		}
+	}
+
+	return res, nil
+}
+
+// Search executes a search for `index` in the requested tree.
+func (t *Tree) Search(treeSize uint64, index []byte) (*SearchResult, error) {
+	search, err := t.BatchSearch(treeSize, index)
 	if err != nil {
 		return nil, fmt.Errorf("creating search: %w", err)
 	}
@@ -114,32 +149,53 @@ func (t *Tree) Search(version uint64, index []byte) (*SearchResult, error) {
 }
 
 // Trace performs the same database lookups in the same order as Search, without
-// computing the intermediate hashes to produce a full search result. This is
-// used for populating caches.
-func (t *Tree) Trace(version uint64, index []byte) error {
-	search, err := t.BatchSearch(version, index)
-	if err != nil {
-		return fmt.Errorf("creating search: %w", err)
+// computing the intermediate hashes to produce a full search result.
+//
+// Returns the log position that the search for each index ended at. If an index was not found, its value will be math.MaxUint64.
+func (t *Tree) Trace(treeSize uint64, indices [][]byte) ([]uint64, error) {
+	if treeSize == 0 {
+		out := make([]uint64, len(indices))
+		for i := range out {
+			out[i] = math.MaxUint64
+		}
+		return out, nil
 	}
-	_, _, err = newSearchBatch(t.aesKey, t.tx, []*Search{search}).exec(true)
-	if err != nil {
-		return err
+
+	searches := make([]*Search, len(indices))
+	for i, index := range indices {
+		search, err := t.BatchSearch(treeSize, index)
+		if err != nil {
+			return nil, fmt.Errorf("creating search: %w", err)
+		}
+		searches[i] = search
 	}
-	return nil
+	positions, results, err := newSearchBatch(t.aesKey, t.tx, searches).exec(true)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]uint64, len(positions))
+	for i, pos := range positions {
+		if _, ok := results[i].(*cachedLogEntry); ok {
+			out[i] = pos
+		} else {
+			out[i] = math.MaxUint64
+		}
+	}
+	return out, nil
 }
 
 // InsertFake changes the tree like a random new entry was inserted, without
 // actually doing so.
 //
-// The current tree version is given in `version`; after this method returns
-// successfully, the tree may be used with `version+1`.
-func (t *Tree) InsertFake(version uint64) ([]byte, error) {
+// The current tree size is given in `treeSize`; after this method returns
+// successfully, the tree may be used with `treeSize+1`.
+func (t *Tree) InsertFake(treeSize uint64) ([]byte, error) {
 	var entry *pb.LogEntry
-	if version == 0 {
+	if treeSize == 0 {
 		// entry = &pb.LogEntry{
 		// 	Index:    nil,
 		// 	Copath: nil,
-		// 	Seed:   version,
+		// 	Seed:   treeSize,
 		// }
 		return nil, fmt.Errorf("can not do fake insert in an empty tree")
 	} else {
@@ -147,7 +203,7 @@ func (t *Tree) InsertFake(version uint64) ([]byte, error) {
 		if _, err := rand.Read(index); err != nil {
 			return nil, fmt.Errorf("getting randomness: %w", err)
 		}
-		search, err := t.BatchSearch(version, index)
+		search, err := t.BatchSearch(treeSize, index)
 		if err != nil {
 			return nil, fmt.Errorf("creating search: %w", err)
 		}
@@ -163,7 +219,7 @@ func (t *Tree) InsertFake(version uint64) ([]byte, error) {
 		entry = &pb.LogEntry{
 			Index:               index[:cutoff],
 			Copath:              failed.copath,
-			FirstUpdatePosition: version,
+			FirstUpdatePosition: treeSize,
 		}
 	}
 
@@ -174,7 +230,7 @@ func (t *Tree) InsertFake(version uint64) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	t.tx.Put(version, raw)
+	t.tx.Put(treeSize, raw)
 
 	return cached.rollup(0), nil
 }
@@ -185,9 +241,9 @@ type Entry struct {
 
 // sequence is a wrapper around sequencePart, that allows sequencing to happen
 // on many cores instead of just one.
-func (t *Tree) sequence(version uint64, entries []Entry, fake bool) ([]*cachedLogEntry, error) {
+func (t *Tree) sequence(treeSize uint64, entries []Entry, fake bool) ([]*cachedLogEntry, error) {
 	if len(entries) < 64 { // Skip multi-threaded stuff for small batches.
-		return t.sequencePart(version, 0, entries, fake)
+		return t.sequencePart(treeSize, 0, entries, fake)
 	}
 
 	type sequenceResult struct {
@@ -212,7 +268,7 @@ func (t *Tree) sequence(version uint64, entries []Entry, fake bool) ([]*cachedLo
 			j = len(entries)
 		}
 		go func() {
-			part, err := t.sequencePart(version, i, entries[i:j], fake)
+			part, err := t.sequencePart(treeSize, i, entries[i:j], fake)
 			ch <- sequenceResult{i, part, err}
 		}()
 		goroutines++
@@ -233,12 +289,12 @@ func (t *Tree) sequence(version uint64, entries []Entry, fake bool) ([]*cachedLo
 
 // sequencePart takes a subset of new entries to insert into the prefix tree and
 // returns a cachedLogEntry for each, corresponding to the log entry that would
-// be stored if it were version+1 of the tree.
+// be stored if the tree had treeSize+1 entries.
 // fake is whether the provided log entries are fake, which affects the data stored in the cachedLogEntry.
-func (t *Tree) sequencePart(version uint64, offset int, entries []Entry, fake bool) ([]*cachedLogEntry, error) {
+func (t *Tree) sequencePart(treeSize uint64, offset int, entries []Entry, fake bool) ([]*cachedLogEntry, error) {
 	var searches []*Search
 	for _, entry := range entries {
-		search, err := t.BatchSearch(version, entry.Index)
+		search, err := t.BatchSearch(treeSize, entry.Index)
 		if err != nil {
 			return nil, fmt.Errorf("creating search: %w", err)
 		}
@@ -261,7 +317,7 @@ func (t *Tree) sequencePart(version uint64, offset int, entries []Entry, fake bo
 			temp := &cachedLogEntry{
 				inner: &pb.LogEntry{
 					Copath:              res.copath,
-					FirstUpdatePosition: version + uint64(offset+i),
+					FirstUpdatePosition: treeSize + uint64(offset+i),
 				},
 				aesKey: t.aesKey,
 			}
@@ -295,9 +351,9 @@ func (t *Tree) sequencePart(version uint64, offset int, entries []Entry, fake bo
 // of entries that already exist. It returns the new roots and a search result
 // for each entry.
 //
-// The current tree version is given in `version`; after this method returns
-// successfully, the tree may be used with `version+len(entries)`.
-func (t *Tree) BatchInsert(version uint64, entries []Entry, fake bool) ([][]byte, []*SearchResult, error) {
+// The current treeSize is given in `treeSize`; after this method returns
+// successfully, the tree may be used with `treeSize+len(entries)`.
+func (t *Tree) BatchInsert(treeSize uint64, entries []Entry, fake bool) ([][]byte, []*SearchResult, error) {
 	if len(entries) == 0 {
 		return nil, nil, errors.New("no entries to insert provided")
 	}
@@ -310,7 +366,7 @@ func (t *Tree) BatchInsert(version uint64, entries []Entry, fake bool) ([][]byte
 	}
 
 	var sequenced []*cachedLogEntry
-	if version == 0 {
+	if treeSize == 0 {
 		// Do not insert fake entries into an empty tree
 		if fake {
 			return nil, nil, errors.New("cannot insert fake entries into an empty tree")
@@ -320,7 +376,7 @@ func (t *Tree) BatchInsert(version uint64, entries []Entry, fake bool) ([][]byte
 				inner: &pb.LogEntry{
 					Index:               entry.Index,
 					Copath:              nil,
-					FirstUpdatePosition: version + uint64(i),
+					FirstUpdatePosition: treeSize + uint64(i),
 					Leaf:                &pb.LeafNode{Ctr: 0, Commitment: entry.Commitment},
 				},
 				aesKey: t.aesKey,
@@ -328,16 +384,16 @@ func (t *Tree) BatchInsert(version uint64, entries []Entry, fake bool) ([][]byte
 		}
 	} else {
 		var err error
-		sequenced, err = t.sequence(version, entries, fake)
+		sequenced, err = t.sequence(treeSize, entries, fake)
 		if err != nil {
 			return nil, nil, err
 		}
 	}
 
 	// All the entries in the `sequenced` slice are constructed as if they're
-	// going to be version+1 of the tree. Update them so that they're in order.
+	// going to be treeSize+1 of the tree. Update them so that they're in order.
 	for i := 1; i < len(sequenced); i++ {
-		search := &Search{index: sequenced[i].inner.Index, ptr: version - 1 + uint64(i)}
+		search := &Search{index: sequenced[i].inner.Index, ptr: treeSize - 1 + uint64(i)}
 		ptr := i - 1
 		for {
 			// Search the prefix tree of the log entry associated with `ptr`.
@@ -347,8 +403,8 @@ func (t *Tree) BatchInsert(version uint64, entries []Entry, fake bool) ([][]byte
 			case uint64:
 				// If the next step of the search jumps to a previous entry in the sequencing batch,
 				// we can grab that log entry from the `sequenced` slice and continue our search
-				if res >= version {
-					ptr = int(res - version)
+				if res >= treeSize {
+					ptr = int(res - treeSize)
 					continue
 				}
 				// Otherwise, the search jumped to a log entry less than the starting log tree size before the batch update.
@@ -396,7 +452,7 @@ func (t *Tree) BatchInsert(version uint64, entries []Entry, fake bool) ([][]byte
 		if err != nil {
 			return nil, nil, err
 		}
-		t.tx.Put(version+uint64(i), raw)
+		t.tx.Put(treeSize+uint64(i), raw)
 
 		roots = append(roots, entry.rollup(0))
 
@@ -407,7 +463,7 @@ func (t *Tree) BatchInsert(version uint64, entries []Entry, fake bool) ([][]byte
 				Counter: entry.inner.Leaf.Ctr,
 
 				FirstUpdatePosition:  entry.inner.FirstUpdatePosition,
-				LatestUpdatePosition: version + uint64(i),
+				LatestUpdatePosition: treeSize + uint64(i),
 				Commitment:           entry.inner.Leaf.Commitment,
 			})
 		}
@@ -417,15 +473,15 @@ func (t *Tree) BatchInsert(version uint64, entries []Entry, fake bool) ([][]byte
 
 // Insert adds a new index to the tree or increments its counter if it already
 // exists, and returns the new root and search result.
-func (t *Tree) Insert(version uint64, index, commitment []byte, fake bool) ([]byte, *SearchResult, error) {
-	roots, srs, err := t.BatchInsert(version, []Entry{{index, commitment}}, fake)
+func (t *Tree) Insert(treeSize uint64, index, commitment []byte, fake bool) ([]byte, *SearchResult, error) {
+	roots, srs, err := t.BatchInsert(treeSize, []Entry{{index, commitment}}, fake)
 	if err != nil {
 		return nil, nil, err
 	}
 	return roots[0], srs[0], nil
 }
 
-// LogEntries returns the stored log entries for the requested version range.
+// LogEntries returns the stored log entries for the requested range.
 func (t *Tree) LogEntries(start, end uint64) ([]*pb.LogEntry, [][]byte, [][]byte, error) {
 	var ids []uint64
 	for i := start; i < end; i++ {

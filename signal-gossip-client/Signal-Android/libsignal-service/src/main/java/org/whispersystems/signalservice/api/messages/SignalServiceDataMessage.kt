@@ -251,8 +251,6 @@ class SignalServiceDataMessage private constructor(
 
     fun withKeyTransparencyField(keyTransparencyField: ByteArray?): Builder {
       this.keyTransparencyField = keyTransparencyField
-      if (this.keyTransparencyField != null)
-        Log.i("GOSSIP", MessageFormat.format("Send data: {0} Bytes", keyTransparencyField?.size))
       return this
     }
 

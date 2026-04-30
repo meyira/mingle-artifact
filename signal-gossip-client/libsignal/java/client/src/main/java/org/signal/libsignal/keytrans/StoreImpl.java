@@ -30,7 +30,7 @@ public class StoreImpl implements Store {
     }
 
     try {
-      KtQuery.DistinguishedResponse.parseFrom(lastDistinguishedTreeHead);
+      signal.keytrans.Store.StoredTreeHead.parseFrom(lastDistinguishedTreeHead);
     } catch (InvalidProtocolBufferException e) {
       throw new RuntimeException(e);
     }

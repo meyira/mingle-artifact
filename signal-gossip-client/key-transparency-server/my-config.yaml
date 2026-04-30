@@ -3,10 +3,8 @@ kt:
   authorized-headers:
     ExampleHeader1:
       - example value one
-      - example value two
   header-value-to-auditor-name:
     example value one: example-auditor-1
-    example value two: example-auditor-2
 
 kt-query:
   server-addr: 0.0.0.0:8080
@@ -36,8 +34,6 @@ api:
     interval: 10s
   distinguished: 2s
   auditors:
-    example-auditor-1: abcdef1234abcdef1234abcdef1234abcdef1234abcdef1234abcdef1234abcd
-    example-auditor-2: abcdef1234abcdef1234abcdef1234abcdef1234abcdef1234abcdef1234abcd
   min-search-delay: 1s
   min-monitor-delay: 1s
   jitter-percent: 10

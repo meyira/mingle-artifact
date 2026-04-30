@@ -13,8 +13,8 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/signalapp/keytransparency/cmd/internal/config"
-	"github.com/signalapp/keytransparency/cmd/internal/util"
 	"github.com/signalapp/keytransparency/cmd/kt-server/pb"
+	"github.com/signalapp/keytransparency/cmd/shared"
 	"github.com/signalapp/keytransparency/db"
 	tpb "github.com/signalapp/keytransparency/tree/transparency/pb"
 )
@@ -103,7 +103,7 @@ func TestSearch_AciNotFound(t *testing.T) {
 
 	// Add ACI so that we're not searching an empty tree
 	aciUpdateReq := &tpb.UpdateRequest{
-		SearchKey:   append([]byte{util.AciPrefix}, validAci1...),
+		SearchKey:   append([]byte{shared.AciPrefix}, validAci1...),
 		Value:       append([]byte{0}, validAciIdentityKey1...),
 		Consistency: &tpb.Consistency{},
 	}
@@ -118,9 +118,9 @@ func TestSearch_AciNotFound(t *testing.T) {
 		AciIdentityKey: validAciIdentityKey1,
 		Consistency:    &tpb.Consistency{},
 	}, tree)
-	if grpcError, ok := status.FromError(err); grpcError.Code() != codes.NotFound || !ok {
+	if grpcError, ok := status.FromError(err); grpcError.Code() != codes.PermissionDenied || !ok {
 		t.Fatalf("Expected %v, got %v",
-			codes.NotFound, err)
+			codes.PermissionDenied, err)
 	} else if resp != nil {
 		t.Fatalf("Expected no search response")
 	}
@@ -135,7 +135,7 @@ func TestSearch_AciPermissionDenied(t *testing.T) {
 
 	// Add ACI
 	aciUpdateReq := &tpb.UpdateRequest{
-		SearchKey:   append([]byte{util.AciPrefix}, validAci1...),
+		SearchKey:   append([]byte{shared.AciPrefix}, validAci1...),
 		Value:       append([]byte{0}, validAciIdentityKey1...),
 		Consistency: &tpb.Consistency{},
 	}
@@ -169,7 +169,7 @@ func TestSearch_UsernameHashNotFound(t *testing.T) {
 
 	// Add ACI so that we're not searching an empty tree
 	aciUpdateReq := &tpb.UpdateRequest{
-		SearchKey:   append([]byte{util.AciPrefix}, validAci1...),
+		SearchKey:   append([]byte{shared.AciPrefix}, validAci1...),
 		Value:       append([]byte{0}, validAciIdentityKey1...),
 		Consistency: &tpb.Consistency{},
 	}
@@ -207,7 +207,7 @@ func TestSearch_E164NotFound(t *testing.T) {
 
 	// Add ACI so that we're not searching an empty tree
 	aciUpdateReq := &tpb.UpdateRequest{
-		SearchKey:   append([]byte{util.AciPrefix}, validAci1...),
+		SearchKey:   append([]byte{shared.AciPrefix}, validAci1...),
 		Value:       append([]byte{0}, validAciIdentityKey1...),
 		Consistency: &tpb.Consistency{},
 	}
@@ -247,7 +247,7 @@ func TestSearch_E164DoesNotMatch(t *testing.T) {
 
 	// Add ACI
 	aciUpdateReq := &tpb.UpdateRequest{
-		SearchKey:   append([]byte{util.AciPrefix}, validAci1...),
+		SearchKey:   append([]byte{shared.AciPrefix}, validAci1...),
 		Value:       append([]byte{0}, validAciIdentityKey1...),
 		Consistency: &tpb.Consistency{},
 	}
@@ -258,7 +258,7 @@ func TestSearch_E164DoesNotMatch(t *testing.T) {
 
 	// Add username hash
 	usernameHashUpdateReq := &tpb.UpdateRequest{
-		SearchKey:   append([]byte{util.UsernameHashPrefix}, validUsernameHash1...),
+		SearchKey:   append([]byte{shared.UsernameHashPrefix}, validUsernameHash1...),
 		Value:       append([]byte{0}, validAci1...),
 		Consistency: &tpb.Consistency{},
 	}
@@ -269,7 +269,7 @@ func TestSearch_E164DoesNotMatch(t *testing.T) {
 
 	// Add E164 that maps to a different ACI
 	e164UpdateReq := &tpb.UpdateRequest{
-		SearchKey:   append([]byte{util.NumberPrefix}, []byte(validPhoneNumber1)...),
+		SearchKey:   append([]byte{shared.NumberPrefix}, []byte(validPhoneNumber1)...),
 		Value:       append([]byte{0}, mismatchedAci...),
 		Consistency: &tpb.Consistency{},
 	}
@@ -312,7 +312,7 @@ func TestSearch_UsernameHashDoesNotMatch(t *testing.T) {
 
 	// Add ACI
 	aciUpdateReq := &tpb.UpdateRequest{
-		SearchKey:   append([]byte{util.AciPrefix}, validAci1...),
+		SearchKey:   append([]byte{shared.AciPrefix}, validAci1...),
 		Value:       append([]byte{0}, validAciIdentityKey1...),
 		Consistency: &tpb.Consistency{},
 	}
@@ -323,7 +323,7 @@ func TestSearch_UsernameHashDoesNotMatch(t *testing.T) {
 
 	// Add E164
 	e164UpdateReq := &tpb.UpdateRequest{
-		SearchKey:   append([]byte{util.NumberPrefix}, []byte(validPhoneNumber1)...),
+		SearchKey:   append([]byte{shared.NumberPrefix}, []byte(validPhoneNumber1)...),
 		Value:       append([]byte{0}, validAci1...),
 		Consistency: &tpb.Consistency{},
 	}
@@ -334,7 +334,7 @@ func TestSearch_UsernameHashDoesNotMatch(t *testing.T) {
 
 	// Add username hash that maps to a different ACI
 	usernameHashUpdateReq := &tpb.UpdateRequest{
-		SearchKey:   append([]byte{util.UsernameHashPrefix}, validUsernameHash1...),
+		SearchKey:   append([]byte{shared.UsernameHashPrefix}, validUsernameHash1...),
 		Value:       append([]byte{0}, mismatchedAci...),
 		Consistency: &tpb.Consistency{},
 	}
@@ -424,7 +424,7 @@ func TestMonitor(t *testing.T) {
 
 	// Setup part 1: add data so that we're not using an empty tree
 
-	aciSearchKey := append([]byte{util.AciPrefix}, validAci1...)
+	aciSearchKey := append([]byte{shared.AciPrefix}, validAci1...)
 	aciUpdateReq := &tpb.UpdateRequest{
 		SearchKey:   aciSearchKey,
 		Value:       append([]byte{0}, validAciIdentityKey1...),
@@ -435,7 +435,7 @@ func TestMonitor(t *testing.T) {
 		t.Fatalf("Unexpected error updating the tree, %v", err)
 	}
 
-	usernameHashSearchKey := append([]byte{util.UsernameHashPrefix}, validUsernameHash1...)
+	usernameHashSearchKey := append([]byte{shared.UsernameHashPrefix}, validUsernameHash1...)
 	usernameHashUpdateReq := &tpb.UpdateRequest{
 		SearchKey:   usernameHashSearchKey,
 		Value:       append([]byte{0}, validAci1...),
@@ -446,7 +446,7 @@ func TestMonitor(t *testing.T) {
 		t.Fatalf("Unexpected error updating the tree, %v", err)
 	}
 
-	e164SearchKey := append([]byte{util.NumberPrefix}, validPhoneNumber1...)
+	e164SearchKey := append([]byte{shared.NumberPrefix}, validPhoneNumber1...)
 	e164UpdateReq := &tpb.UpdateRequest{
 		SearchKey:   e164SearchKey,
 		Value:       append([]byte{0}, validAci1...),

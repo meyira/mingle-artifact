@@ -13,30 +13,30 @@ jobs:
 
     steps:
       - name: Checkout main project
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@b47578312673ae6fa5b5096b330d9fbac3d116df # v4.2.1
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5.1.1
         with:
           role-to-assume: ${{ vars.AWS_IAM_ROLE }}
           aws-region: ${{ vars.AWS_REGION }}
 
       - name: Login to ECR
-        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
         with:
           registry: ${{ vars.ECR_REGISTRY }}
 
       - name: Set up Go
         id: setup-go
-        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6.1.0
         with:
           go-version-file: go.mod
 
-      - name: Set up JDK 21
-        uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
+      - name: Set up JDK
+        uses: actions/setup-java@f2beeb24e141e01a676f977032f5a29d81c9e27e # v5.1.0
         with:
           distribution: 'temurin'
-          java-version: 21
+          java-version-file: ./filter-key-updates/.java-version
           cache: 'maven'
 
       - name: Test Go
@@ -48,9 +48,11 @@ jobs:
             --tag "${{ vars.ECR_REGISTRY }}/${{ vars.ECR_REPO }}:${GITHUB_REF_NAME}"
           docker push "${{ vars.ECR_REGISTRY }}/${{ vars.ECR_REPO }}:${GITHUB_REF_NAME}"
 
-      - name: Build and push filter key updates lambda artifact to S3
+      - name: Build filter key updates lambda artifact
         working-directory: ./filter-key-updates
         run: |
-          ./mvnw -e -B deploy -Djgitver.use-version=${{ github.ref_name }} \
-            -DbucketName=${{ vars.S3_BUCKET }} \
-            -DbucketKey=${{ vars.S3_BUCKET_KEY }}
+          ./mvnw -e -B verify -Djgitver.use-version=${{ github.ref_name }}
+
+      - name: Upload filter key updates artifact to S3
+        working-directory: ./filter-key-updates
+        run: aws s3 cp target/filter-key-updates-lambda-${{ github.ref_name }}.jar s3://${{ vars.S3_BUCKET }}/${{ vars.S3_BUCKET_KEY }}/

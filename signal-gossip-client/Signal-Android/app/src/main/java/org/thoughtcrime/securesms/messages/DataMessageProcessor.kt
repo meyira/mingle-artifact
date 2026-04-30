@@ -3,7 +3,6 @@ package org.thoughtcrime.securesms.messages
 import android.content.Context
 import android.text.TextUtils
 import com.mobilecoin.lib.exceptions.SerializationException
-import kt_query.KtQuery
 import okio.ByteString.Companion.toByteString
 import org.signal.core.util.Base64
 import org.signal.core.util.Hex
@@ -20,6 +19,7 @@ import org.thoughtcrime.securesms.attachments.PointerAttachment
 import org.thoughtcrime.securesms.attachments.TombstoneAttachment
 import org.thoughtcrime.securesms.calls.links.CallLinks
 import org.thoughtcrime.securesms.components.emoji.EmojiUtil
+import org.thoughtcrime.securesms.contacts.paged.ContactSearchKey
 import org.thoughtcrime.securesms.contactshare.Contact
 import org.thoughtcrime.securesms.contactshare.ContactModelMapper
 import org.thoughtcrime.securesms.crypto.ProfileKeyUtil
@@ -113,6 +113,8 @@ import org.whispersystems.signalservice.internal.push.Envelope
 import org.whispersystems.signalservice.internal.push.GroupContextV2
 import org.whispersystems.signalservice.internal.push.Preview
 import org.whispersystems.signalservice.internal.util.Util
+import signal.keytrans.Store
+import signal.keytrans.Store.StoredTreeHead
 import java.io.IOException
 import java.util.Optional
 import java.util.UUID
@@ -198,35 +200,33 @@ object DataMessageProcessor {
     }
 
     if (message.key_transparency_field != null) {
-      val res = KtQuery.DistinguishedResponse.parseFrom(message.key_transparency_field!!.toByteArray())
-//      Log.e("GOSSIP", "DTH: " + res.distinguished)
-      android.os.Handler(android.os.Looper.getMainLooper()).post {
-        android.widget.Toast.makeText(context, "Received KT field: " + message.key_transparency_field, android.widget.Toast.LENGTH_LONG).show();
-      }
+      val res = StoredTreeHead.parseFrom(message.key_transparency_field!!.toByteArray())
+      Log.d("GOSSIP", "Received Gossip (Tree Size: "
+        + res.getTreeHead().getTreeSize()
+        + ", Root Hash: " + res.getRoot().toString() + ")")
       val store = AppDependencies.keyTransparencyStore
       val client = AppDependencies.keyTransparencyClient
 
       try {
-        client.verifyDistinguishedResponse(res, store);
-        Log.i("GOSSIP", "Received DTH from Sender seems to be fine")
-        // TODO pick strategy on what to do after verifying
-        // 1. If the given DTH is fine: Should I save it for myself?
-        // 2. When should I retrieve my own DTH from the KT Server?
-        // 3. as provided in STH-Only Gossip protocol: Leave it as is.
-        android.os.Handler(android.os.Looper.getMainLooper()).post {
-          android.widget.Toast.makeText(context, "Received DTH seems to be fine.", android.widget.Toast.LENGTH_LONG).show();
-        }
+        // Just for note, in the PoC, it is not thread-safe
+        Log.d("GOSSIP", "Msg: " + message.body.toString())
+        store.setLastDistinguishedTreeHead(res.toByteArray())
+        client.fetchDistinguishedGrpc(store).get();
 
-      } catch (e: IOException) {
-        // Not clean to catch IOException, but it needs to work anyhow
-        Log.e("GOSSIP", "VERIFICATION FAILED! Potential inconsistency detected. (Fail-opening for showcasing)", e)
         android.os.Handler(android.os.Looper.getMainLooper()).post {
-          android.widget.Toast.makeText(context, "VERIFICATION FAILED! Potential inconsistency detected.", android.widget.Toast.LENGTH_LONG).show();
+          android.widget.Toast.makeText(context, "Received Gossip seems to be fine.", android.widget.Toast.LENGTH_LONG).show();
+        }
+        val sthCurrent = StoredTreeHead.parseFrom(store.lastDistinguishedTreeHead.get())
+        Log.d("GOSSIP", "Gossip seems to be fine")
+        Log.d("GOSSIP", "Current Tree Head (Tree Size: " + sthCurrent.getTreeHead().getTreeSize() + ", Root Hash: " + sthCurrent.getRoot().toString() + ")")
+      } catch (e: Exception) {
+        Log.e("GOSSIP", "VERIFICATION FAILED! Potential KT inconsistency detected. (Fail-opening for showcasing)", e)
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+          android.widget.Toast.makeText(context, "VERIFICATION FAILED! Potential KT inconsistency detected.", android.widget.Toast.LENGTH_LONG).show();
         }
       }
     } else {
       Log.e("GOSSIP", "Did NOT receive KT field...");
-
     }
 
     if (message.profileKey.isNotEmpty()) {

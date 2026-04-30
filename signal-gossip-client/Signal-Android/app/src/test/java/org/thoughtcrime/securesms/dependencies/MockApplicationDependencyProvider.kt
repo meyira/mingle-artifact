@@ -3,6 +3,8 @@ package org.thoughtcrime.securesms.dependencies
 import io.mockk.mockk
 import org.signal.core.util.billing.BillingApi
 import org.signal.core.util.concurrent.DeadlockDetector
+import org.signal.libsignal.keytrans.Store
+import org.signal.libsignal.net.KeyTransparencyClientGrpc
 import org.signal.libsignal.net.Network
 import org.signal.libsignal.zkgroup.profiles.ClientZkProfileOperations
 import org.signal.libsignal.zkgroup.receipts.ClientZkReceiptOperations
@@ -303,6 +305,14 @@ class MockApplicationDependencyProvider : AppDependencies.Provider {
   }
 
   override fun provideSvrBApi(libSignalNetwork: Network): SvrBApi {
+    return mockk(relaxed = true)
+  }
+
+  override fun provideKeyTransparencyStore(): Store {
+    return mockk(relaxed = true)
+  }
+
+  override fun provideKeyTransparencyClient(store: Store): KeyTransparencyClientGrpc {
     return mockk(relaxed = true)
   }
 }

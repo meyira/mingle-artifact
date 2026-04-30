@@ -31,7 +31,7 @@ func handleDistinguished(client pb.KeyTransparencyQueryServiceClient) {
 	if *configFile == "" {
 		p.Printf("Verification skipped\n")
 	} else {
-		if err := transparency.VerifySearch(newStore(), createTreeSearchRequest([]byte("distinguished")), createTreeSearchResponse(res.Distinguished, res.TreeHead)); err != nil {
+		if err := transparency.VerifySearch(newStore(), createTreeSearchRequest([]byte("distinguished"), nil), createTreeSearchResponse(res.Distinguished, res.TreeHead)); err != nil {
 			p.Printf("Verification failed: %v\n", err)
 		} else {
 			p.Printf("Verification successful\n")

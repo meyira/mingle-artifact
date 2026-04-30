@@ -1,9 +1,6 @@
 package org.thoughtcrime.securesms.components.settings.app
 
-import android.content.Context
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.view.View
 import android.widget.Toast
 import androidx.annotation.StringRes
@@ -42,7 +39,6 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContentProviderCompat.requireContext
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
@@ -53,8 +49,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import okio.ByteString
-import okio.ByteString.Companion.toByteString
 import org.signal.core.ui.compose.DayNightPreviews
 import org.signal.core.ui.compose.Dividers
 import org.signal.core.ui.compose.IconButtons
@@ -63,9 +57,6 @@ import org.signal.core.ui.compose.Rows
 import org.signal.core.ui.compose.Scaffolds
 import org.signal.core.ui.compose.horizontalGutters
 import org.signal.core.ui.compose.theme.SignalTheme
-import org.signal.core.util.concurrent.SignalExecutors
-import org.signal.libsignal.net.KeyTransparencyClientGrpc
-import org.signal.libsignal.zkgroup.internal.ByteArray
 import org.thoughtcrime.securesms.R
 import org.thoughtcrime.securesms.avatar.AvatarImage
 import org.thoughtcrime.securesms.backup.v2.BackupRepository
@@ -86,7 +77,6 @@ import org.thoughtcrime.securesms.components.settings.app.subscription.completed
 import org.thoughtcrime.securesms.compose.ComposeFragment
 import org.thoughtcrime.securesms.compose.rememberStatusBarColorNestedScrollModifier
 import org.thoughtcrime.securesms.database.model.InAppPaymentSubscriberRecord
-import org.thoughtcrime.securesms.keyvalue.SignalStore
 import org.thoughtcrime.securesms.profiles.ProfileName
 import org.thoughtcrime.securesms.recipients.Recipient
 import org.thoughtcrime.securesms.util.CommunicationActions
@@ -359,18 +349,6 @@ private fun AppSettingsContent(
               },
               onLongClick = {
                 callbacks.copyDonorBadgeSubscriberIdToClipboard()
-              }
-            )
-          }
-
-
-          item {
-            val context = LocalContext.current
-            Rows.TextRow(
-              text = "Add ACI + IdentityKey to KT Server",
-              icon = painterResource(R.drawable.ic_update_group_add_16),
-              onClick = {
-                KTShenanigans.insertKeys(context)
               }
             )
           }
@@ -801,41 +779,6 @@ private fun BioRowPreview() {
     )
   }
 }
-
-private object KTShenanigans {
-
-  fun insertKeys(context: Context) {
-    Toast.makeText(context, "Triggering KT Update...", Toast.LENGTH_SHORT).show()
-
-    SignalExecutors.BOUNDED.execute {
-      try {
-        val account = SignalStore.account
-        val selfAci = account.aci
-        val identityKey = account.aciIdentityKey.publicKey.serialize()
-
-        if (selfAci != null) {
-          val ktClient = KeyTransparencyClientGrpc("10.0.2.2", 8080)
-
-          ktClient.updateGrpc(selfAci.component1(), identityKey, null).get()
-
-          Handler(Looper.getMainLooper()).post {
-            Toast.makeText(context, "KT Server Updated!", Toast.LENGTH_LONG).show()
-          }
-        } else {
-          Handler(Looper.getMainLooper()).post {
-            Toast.makeText(context, "No ACI found!", Toast.LENGTH_LONG).show()
-          }
-        }
-      } catch (e: Exception) {
-        e.printStackTrace()
-        Handler(Looper.getMainLooper()).post {
-          Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
-        }
-      }
-    }
-  }
-}
-
 private interface Callbacks {
   fun onNavigationClick(): Unit = error("Not implemented.")
   fun navigate(route: AppSettingsRoute): Unit = error("Not implemented")

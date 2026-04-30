@@ -6,14 +6,18 @@
 package db
 
 import (
+	"fmt"
 	"sync/atomic"
 
-	metrics "github.com/hashicorp/go-metrics"
+	"github.com/hashicorp/go-metrics"
 	lru "github.com/hashicorp/golang-lru/v2"
 )
 
-func countCacheHit(typ string, hit bool) {
-	lbls := []metrics.Label{{Name: "type", Value: typ}}
+func countCacheHit(typ string, hit, clone bool) {
+	lbls := []metrics.Label{
+		{Name: "type", Value: typ},
+		{Name: "write_path", Value: fmt.Sprint(!clone)},
+	}
 	var name []string
 	if hit {
 		name = []string{"lru", "cache_hit"}
@@ -36,7 +40,8 @@ type headPair struct {
 }
 
 type cachedTransparencyStore struct {
-	db TransparencyStore
+	db    TransparencyStore
+	clone bool
 
 	head        *atomic.Value
 	topCache    *lru.Cache[uint64, []byte]
@@ -47,7 +52,7 @@ type cachedTransparencyStore struct {
 type Bitmask uint32
 
 func NewCachedTransparencyStore(db TransparencyStore, cachesToEnable Bitmask, topCacheSize, logCacheSize, prefixCacheSize int) TransparencyStore {
-	cache := &cachedTransparencyStore{db: db}
+	cache := &cachedTransparencyStore{db: db, clone: false}
 
 	var err error
 	if cachesToEnable&TransparencyCache != 0 {
@@ -80,7 +85,8 @@ func NewCachedTransparencyStore(db TransparencyStore, cachesToEnable Bitmask, to
 
 func (c *cachedTransparencyStore) Clone() TransparencyStore {
 	return &cachedTransparencyStore{
-		db: c.db.Clone(),
+		db:    c.db.Clone(),
+		clone: true,
 
 		head:        c.head,
 		topCache:    c.topCache,
@@ -92,10 +98,10 @@ func (c *cachedTransparencyStore) Clone() TransparencyStore {
 func (c *cachedTransparencyStore) GetHead() (*TransparencyTreeHead, map[string]*AuditorTreeHead, error) {
 	if c.head != nil {
 		if head, ok := c.head.Load().(headPair); ok {
-			countCacheHit("head", true)
+			countCacheHit("head", true, c.clone)
 			return head.tree.Clone(), cloneAuditorTreeHeadMap(head.auditors), nil
 		}
-		countCacheHit("head", false)
+		countCacheHit("head", false, c.clone)
 	}
 
 	head, auditors, err := c.db.GetHead()
@@ -113,10 +119,10 @@ func (c *cachedTransparencyStore) GetHead() (*TransparencyTreeHead, map[string]*
 func (c *cachedTransparencyStore) Get(key uint64) ([]byte, error) {
 	if c.topCache != nil {
 		if val, ok := c.topCache.Get(key); ok {
-			countCacheHit("transparency", true)
+			countCacheHit("transparency", true, c.clone)
 			return dup(val), nil
 		}
-		countCacheHit("transparency", false)
+		countCacheHit("transparency", false, c.clone)
 	}
 
 	val, err := c.db.Get(key)
@@ -141,6 +147,7 @@ func (c *cachedTransparencyStore) Put(key uint64, data []byte) {
 func (c *cachedTransparencyStore) LogStore() LogStore {
 	return &cachedLogStore{
 		db:    c.db.LogStore(),
+		clone: c.clone,
 		cache: c.logCache,
 	}
 }
@@ -148,6 +155,7 @@ func (c *cachedTransparencyStore) LogStore() LogStore {
 func (c *cachedTransparencyStore) PrefixStore() PrefixStore {
 	return &cachedPrefixStore{
 		db:    c.db.PrefixStore(),
+		clone: c.clone,
 		cache: c.prefixCache,
 	}
 }
@@ -164,6 +172,7 @@ func (c *cachedTransparencyStore) Commit(head *TransparencyTreeHead, auditors ma
 
 type cachedLogStore struct {
 	db    LogStore
+	clone bool
 	cache *lru.Cache[uint64, []byte]
 }
 
@@ -174,10 +183,10 @@ func (c *cachedLogStore) BatchGet(keys []uint64) (map[uint64][]byte, error) {
 	if c.cache != nil {
 		for _, key := range keys {
 			if val, ok := c.cache.Get(key); ok {
-				countCacheHit("log", true)
+				countCacheHit("log", true, c.clone)
 				data[key] = dup(val)
 			} else {
-				countCacheHit("log", false)
+				countCacheHit("log", false, c.clone)
 				remaining = append(remaining, key)
 			}
 		}
@@ -226,6 +235,7 @@ func (c *cachedLogStore) BatchPut(data map[uint64][]byte) {
 
 type cachedPrefixStore struct {
 	db    PrefixStore
+	clone bool
 	cache *lru.Cache[uint64, []byte]
 }
 
@@ -236,10 +246,10 @@ func (c *cachedPrefixStore) BatchGet(keys []uint64) (map[uint64][]byte, error) {
 	if c.cache != nil {
 		for _, key := range keys {
 			if val, ok := c.cache.Get(key); ok {
-				countCacheHit("prefix", true)
+				countCacheHit("prefix", true, c.clone)
 				data[key] = dup(val)
 			} else {
-				countCacheHit("prefix", false)
+				countCacheHit("prefix", false, c.clone)
 				remaining = append(remaining, key)
 			}
 		}
@@ -266,10 +276,10 @@ func (c *cachedPrefixStore) BatchGet(keys []uint64) (map[uint64][]byte, error) {
 func (c *cachedPrefixStore) GetCached(key uint64) []byte {
 	if c.cache != nil {
 		if val, ok := c.cache.Get(key); ok {
-			countCacheHit("prefix", true)
+			countCacheHit("prefix", true, c.clone)
 			return dup(val)
 		}
-		countCacheHit("prefix", false)
+		countCacheHit("prefix", false, c.clone)
 	}
 
 	return c.db.GetCached(key)

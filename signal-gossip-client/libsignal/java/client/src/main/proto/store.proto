@@ -27,3 +27,10 @@ message StoredAccountData {
   StoredMonitoringData username_hash = 3;
   StoredTreeHead last_tree_head = 4;
 }
+
+// This is used for gossiping
+message KeytransGossip {
+  bytes root = 1;
+  uint64 tree_size = 2;
+}
+

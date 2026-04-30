@@ -15,7 +15,9 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/signal"
 	"runtime"
+	"syscall"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -42,7 +44,8 @@ var (
 
 func main() {
 	flag.Parse()
-	ctx := context.Background()
+	ctx, _ := signal.NotifyContext(context.Background(), syscall.SIGTERM)
+
 	consoleWriter := zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}
 
 	// Load config from disk.
@@ -94,7 +97,7 @@ func main() {
 	go healthServer.Serve(lis)
 
 	// Start the metrics server.
-	exportMetrics(config.DatadogAddr)
+	exportMetrics(ctx, config.OtlpEnabled)
 	go metricsServer(config.MetricsAddr)
 
 	// Start the inserter thread.
@@ -182,19 +185,18 @@ func main() {
 			s := &Streamer{config: config.APIConfig, tx: cachedTransparencyStore.Clone()}
 			go func() {
 
-				var streamStartTimestamp time.Time
+				var streamStartTimestamp *time.Time
 
 				if first && config.StreamConfig.TableName != "" {
 					// start the stream from when the backfill started, minus some padding for clock drift
-					streamStartTimestamp = time.Now().Add(-time.Minute * 15)
+					start := time.Now().Add(-time.Minute * 15)
+					streamStartTimestamp = &start
 
 					util.Log().Infof("Backfilling from DynamoDB table %q", config.StreamConfig.TableName)
 					if err := backfill(ctx, config.StreamConfig.TableName.String(), updateHandler); err != nil {
 						healthCheck.SetServingStatus(liveness, healthpb.HealthCheckResponse_NOT_SERVING)
 						util.Log().Fatalf("stream backfill failed: %v", err)
 					}
-				} else {
-					streamStartTimestamp = time.Now().Add(-config.StreamConfig.InitialHorizon)
 				}
 				util.Log().Infof("Starting stream processing from Kinesis stream %q", config.StreamConfig.Name.String())
 				s.run(ctx, config.StreamConfig.Name.String(), streamStartTimestamp, updateHandler)

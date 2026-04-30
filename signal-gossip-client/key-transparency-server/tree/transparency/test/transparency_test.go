@@ -7,12 +7,14 @@ package test
 
 import (
 	"bytes"
+	"errors"
 	mrand "math/rand"
 	"testing"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/signalapp/keytransparency/cmd/shared"
 	"github.com/signalapp/keytransparency/tree/transparency"
 	"github.com/signalapp/keytransparency/tree/transparency/math"
 	"github.com/signalapp/keytransparency/tree/transparency/pb"
@@ -108,21 +110,24 @@ func TestTreeWithAuditorHeads(t *testing.T) {
 	}
 }
 
-func TestTree(t *testing.T) {
+func TestTreeSearchForVersion(t *testing.T) {
 	tree, store, _, _ := NewTree(t, transparency.ContactMonitoring)
 
 	var (
-		keys   [][]byte
-		values [][]byte
+		repeatKey       = random()
+		repeatKeyValues [][]byte
+
+		randomKeys      [][]byte
+		randomKeyValues [][]byte
 	)
 
 	for i := 0; i < 100; i++ {
-		dice := mrand.Intn(4)
+		dice := mrand.Intn(5)
 
-		if dice == 0 && len(keys) > 0 { // Search for an existing key.
-			i := mrand.Intn(len(keys))
+		if dice == 0 && len(randomKeys) > 0 { // Search for an existing random key, most recent version.
+			i := mrand.Intn(len(randomKeys))
 			req := &pb.TreeSearchRequest{
-				SearchKey:   keys[i],
+				SearchKey:   randomKeys[i],
 				Consistency: Last(store),
 			}
 			res, err := tree.Search(req)
@@ -130,10 +135,25 @@ func TestTree(t *testing.T) {
 				t.Fatal(err)
 			} else if err := transparency.VerifySearch(store, req, res); err != nil {
 				t.Fatal(err)
-			} else if !bytes.Equal(res.Value.Value, values[i]) {
+			} else if !bytes.Equal(res.Value.Value, randomKeyValues[i]) {
 				t.Fatal("unexpected value returned")
 			}
-		} else if dice == 1 { // Add a new key.
+		} else if dice == 1 && len(repeatKeyValues) > 0 { // Search for a specific version of the repeat key
+			version := uint32(mrand.Intn(len(repeatKeyValues)))
+			req := &pb.TreeSearchRequest{
+				SearchKey:   repeatKey,
+				Consistency: Last(store),
+				Version:     &version,
+			}
+			res, err := tree.Search(req)
+			if err != nil {
+				t.Fatal(err)
+			} else if err := transparency.VerifySearch(store, req, res); err != nil {
+				t.Fatal(err)
+			} else if !bytes.Equal(res.Value.Value, repeatKeyValues[version]) {
+				t.Fatal("unexpected value returned")
+			}
+		} else if dice == 2 { // Add a new random key.
 			key, value := random(), random()
 			req := &pb.UpdateRequest{
 				SearchKey:   key,
@@ -146,11 +166,11 @@ func TestTree(t *testing.T) {
 			} else if err := transparency.VerifyUpdate(store, req, res); err != nil {
 				t.Fatal(err)
 			}
-			keys, values = append(keys, key), append(values, value)
-		} else if dice == 2 && len(keys) > 0 { // Update an existing key.
-			i, value := mrand.Intn(len(keys)), random()
+			randomKeys, randomKeyValues = append(randomKeys, key), append(randomKeyValues, value)
+		} else if dice == 3 && len(randomKeys) > 0 { // Update the repeat key
+			value := random()
 			req := &pb.UpdateRequest{
-				SearchKey:   keys[i],
+				SearchKey:   repeatKey,
 				Value:       value,
 				Consistency: Last(store),
 			}
@@ -160,8 +180,8 @@ func TestTree(t *testing.T) {
 			} else if err := transparency.VerifyUpdate(store, req, res); err != nil {
 				t.Fatal(err)
 			}
-			values[i] = value
-		} else if dice == 3 && len(keys) > 0 { // Add some fake updates.
+			repeatKeyValues = append(repeatKeyValues, value)
+		} else if dice == 4 && (len(randomKeys) > 0 || len(repeatKeyValues) > 0) { // Add some fake updates.
 			if err := tree.BatchUpdateFake(5); err != nil {
 				t.Fatal(err)
 			}
@@ -330,7 +350,7 @@ func TestTombstoneUpdate_IndexExists_ExpectedValueMatches(t *testing.T) {
 	tree, store, _, _ := NewTree(t, transparency.ContactMonitoring)
 
 	// Insert a search key
-	searchKey := []byte("searchKey")
+	searchKey := append([]byte{shared.AciPrefix}, []byte("searchKey")...)
 	originalValue := append([]byte{testValuePrefix}, []byte("value1")...)
 
 	preUpdate, err := tree.PreUpdate(&pb.UpdateRequest{
@@ -386,7 +406,7 @@ func TestTombstoneUpdate_IndexExists_ExpectedValueDoesNotMatch(t *testing.T) {
 	tree, store, _, _ := NewTree(t, transparency.ContactMonitoring)
 
 	// Insert a search key
-	searchKey := []byte("searchKey")
+	searchKey := append([]byte{shared.AciPrefix}, []byte("searchKey")...)
 	originalValue := append([]byte{testValuePrefix}, []byte("value1")...)
 
 	preUpdate, err := tree.PreUpdate(&pb.UpdateRequest{
@@ -418,12 +438,12 @@ func TestTombstoneUpdate_IndexExists_ExpectedValueDoesNotMatch(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Expected pre-update value does not match what's in the tree; abort update with no error
-	// but check that the search key still maps to original value
+	// Expected pre-update value does not match what's in the tree; abort update
+	// and check that the search key still maps to original value
 	_, err = tree.UpdateExistingIndexWithTombstoneValue(preUpdate)
 
-	if err != nil {
-		t.Fatalf("Expected no error")
+	if !errors.Is(err, transparency.ErrTombstoneUnexpectedPreUpdateValue) {
+		t.Fatalf("Expected error %v", transparency.ErrTombstoneUnexpectedPreUpdateValue)
 	}
 
 	// Search key should still map to original value
@@ -445,7 +465,7 @@ func TestTombstoneUpdate_IndexNotFound(t *testing.T) {
 	tree, store, _, _ := NewTree(t, transparency.ContactMonitoring)
 
 	// Insert a search key
-	searchKey := []byte("searchKey")
+	searchKey := append([]byte{shared.AciPrefix}, []byte("searchKey")...)
 	originalValue := append([]byte{testValuePrefix}, []byte("value1")...)
 
 	preUpdate, err := tree.PreUpdate(&pb.UpdateRequest{
@@ -465,7 +485,7 @@ func TestTombstoneUpdate_IndexNotFound(t *testing.T) {
 	}
 
 	// Update a different search key with the tombstone value
-	differentSearchKey := []byte("differentSearchKey")
+	differentSearchKey := append([]byte{shared.AciPrefix}, []byte("differentSearchKey")...)
 	preUpdate, err = tree.PreUpdate(&pb.UpdateRequest{
 		SearchKey:              differentSearchKey,
 		Value:                  tombstoneValue,
@@ -477,11 +497,11 @@ func TestTombstoneUpdate_IndexNotFound(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Index should not be found; abort update with no error
+	// Index should not be found; abort update
 	_, err = tree.UpdateExistingIndexWithTombstoneValue(preUpdate)
 
-	if err != nil {
-		t.Fatal("Expected no error")
+	if !errors.Is(err, transparency.ErrTombstoneIndexNotFound) {
+		t.Fatalf("Expected error %v", transparency.ErrTombstoneIndexNotFound)
 	}
 
 	// That different search key should still not be found
@@ -510,7 +530,6 @@ func TestMultipleUpdatesToSameKeyInBatch(t *testing.T) {
 			Value:       []byte(v),
 			Consistency: &pb.Consistency{},
 		})
-
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -519,7 +538,6 @@ func TestMultipleUpdatesToSameKeyInBatch(t *testing.T) {
 	}
 
 	_, err := tree.BatchUpdate(states)
-
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -531,9 +549,7 @@ func TestMultipleUpdatesToSameKeyInBatch(t *testing.T) {
 	res, err := tree.Search(req)
 	if err != nil {
 		t.Fatal(err)
-	}
-
-	if !bytes.Equal(res.Value.Value, []byte(values[len(values)-1])) {
+	} else if !bytes.Equal(res.Value.Value, []byte(values[len(values)-1])) {
 		t.Fatal("unexpected mapped value")
 	}
 
@@ -543,10 +559,96 @@ func TestMultipleUpdatesToSameKeyInBatch(t *testing.T) {
 			maxCtr = ctr
 		}
 	}
-
 	if maxCtr != uint32(len(values)-1) {
 		t.Fatal("unexpected search key ctr")
 	}
+}
+
+func TestUpdateRejectsDuplicates(t *testing.T) {
+	tree, _, _, _ := NewTree(t, transparency.ContactMonitoring)
+
+	// Utility function to generate a list of PreUpdateStates changing a fixed
+	// search key to a given value.
+	makeStates := func(vals [][]byte) []*transparency.PreUpdateState {
+		states := make([]*transparency.PreUpdateState, len(vals))
+
+		for i, val := range vals {
+			preUpdate, err := tree.PreUpdate(&pb.UpdateRequest{
+				SearchKey:   []byte("searchKey"),
+				Value:       val,
+				Consistency: &pb.Consistency{},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			states[i] = preUpdate
+		}
+
+		return states
+	}
+	// Utility function to check whether each PostUpdateState in a list was
+	// rejected for being a duplicate update or not.
+	checkResults := func(results []*transparency.PostUpdateState, dup []bool) {
+		if len(results) != len(dup) {
+			t.Fatal("unexpected number of responses received")
+		}
+		for i, res := range results {
+			_, err := tree.PostUpdate(res)
+			if dup[i] && err != transparency.ErrDuplicateUpdate {
+				t.Fatalf("unexpected error: %v", err)
+			} else if !dup[i] && err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		}
+	}
+
+	// Test case 1: no duplicates.
+	states := makeStates([][]byte{[]byte("value1"), []byte("value2"), []byte("value3")})
+	results, err := tree.BatchUpdate(states)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkResults(results, []bool{false, false, false})
+
+	// Test case 2: duplicate within set of requests.
+	states = makeStates([][]byte{[]byte("value4"), []byte("value4"), []byte("value5")})
+	results, err = tree.BatchUpdate(states)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkResults(results, []bool{false, true, false})
+
+	// Test case 3: duplicate with initial value.
+	states = makeStates([][]byte{[]byte("value5"), []byte("value6")})
+	results, err = tree.BatchUpdate(states)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkResults(results, []bool{true, false})
+
+	// Test case 4: duplicate with initial value but incorrect cache is provided.
+	states = makeStates([][]byte{[]byte("value7"), []byte("value8")})
+
+	other := makeStates([][]byte{[]byte("value7")})
+	results, err = tree.BatchUpdate(other)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkResults(results, []bool{false})
+
+	results, err = tree.BatchUpdate(states)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkResults(results, []bool{true, false})
+
+	// Test case 5: value flip-flops are ok
+	states = makeStates([][]byte{[]byte("value9"), []byte("value10"), []byte("value9")})
+	results, err = tree.BatchUpdate(states)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkResults(results, []bool{false, false, false})
 }
 
 func BenchmarkUpdate1(b *testing.B) {

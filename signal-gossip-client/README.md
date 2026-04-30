@@ -15,19 +15,20 @@ This acts as a monorepo for the following projects:
 ## Requirements
 
 - Android Studio
+- Android SDK 35
 - JDK 17
-- Rust (...)
+- Rust
 - Docker
-- At least 32GB of RAM, recommended: 64GB RAM
+- At least 32GB of RAM, recommended: 64GB RAM (To virtualize everything locally)
 
 Highly recommended: 
 
-- creating a RAM-based filesystem for the binaries under `libsignal/target`, `Signal-Android/app/build`, `libsignal/java/android/build`
+- creating a RAM-based filesystem for the binaries in `libsignal/target`, `Signal-Android/app/build`, `libsignal/java/android/build`
 
 
 ## How to setup the project
 
 1. Install needed dependencies
 2. Open Signal-Android with Android Studio
-3. Create a `local.properties` file in `libsignal/java` containing the path to the Android SDK
-4. ...
+3. Create a `local.properties` file in `libsignal/java` containing the path to the Android SDK: `sdk.dir=/path/to/Android/Sdk`
+4. Start the KT server under `key-transparency-server` with the command `docker compose up --build`.

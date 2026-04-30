@@ -14,6 +14,7 @@ import (
 	"math"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -28,6 +29,7 @@ import (
 
 	"github.com/signalapp/keytransparency/cmd/internal/config"
 	"github.com/signalapp/keytransparency/cmd/internal/util"
+	"github.com/signalapp/keytransparency/cmd/shared"
 	"github.com/signalapp/keytransparency/db"
 	"github.com/signalapp/keytransparency/tree/transparency/pb"
 )
@@ -57,15 +59,105 @@ type kinesisLogger struct{}
 
 func (kl kinesisLogger) Log(v ...any) { util.Log().Infof("%s", fmt.Sprintln(v...)) }
 
-// shardState is used to keep track of the scan state of each shard.
-type shardState struct {
-	// sinceLast is the number of entries from this shard that have been
-	// sequenced since its last checkpoint.
-	sinceLast int
-	// wg is a WaitGroup that all goroutines sequencing entries from this shard
-	// are given.
-	wg *sync.WaitGroup
+// shardMap implements locking around a map from shard id to shard state, used
+// to coordinate many updater goroutines processing Kinesis records.
+type shardMap struct {
+	mutex sync.Mutex
+
+	// done is set to true when the Kinesis stream is being shutdown. This
+	// prevents any further updates from being processed.
+	done bool
+	// shards is a map from shard id to shard state.
+	shards map[string]*shardState
 }
+
+func newShardMap() *shardMap {
+	return &shardMap{
+		mutex: sync.Mutex{},
+
+		done:   false,
+		shards: make(map[string]*shardState),
+	}
+}
+
+// start starts a new update for the given shard id. It returns the shard state.
+// If the stream is being shutdown, it returns nil.
+func (sm *shardMap) start(id string) *shardState {
+	sm.mutex.Lock()
+	defer sm.mutex.Unlock()
+
+	if sm.done {
+		return nil
+	}
+
+	if _, ok := sm.shards[id]; !ok {
+		sm.shards[id] = &shardState{}
+	}
+	state := sm.shards[id]
+	state.start()
+
+	return state
+}
+
+// finish stops new updates from being processed and waits for all existing
+// updates to finish.
+func (sm *shardMap) finish() {
+	sm.mutex.Lock()
+	defer sm.mutex.Unlock()
+
+	sm.done = true
+	for _, shard := range sm.shards {
+		shard.waitGroup.Wait()
+	}
+}
+
+// shardState is the update state for an individual Kinesis shard.
+type shardState struct {
+	// sinceLast is the number of records processed since the last checkpoint.
+	sinceLast int
+	// waitGroup tracks when all pending updates have been processed.
+	waitGroup sync.WaitGroup
+	// aciLocks is a map from ACI to chan struct{}. It prevents multiple updates
+	// from being processed for the same ACI simultaneously.
+	aciLocks sync.Map
+	// didFail is set to true if any updates failed to process.
+	didFail atomic.Bool
+}
+
+func (ss *shardState) start() {
+	ss.sinceLast++
+	ss.waitGroup.Add(1)
+}
+
+// wait waits for all pending updates to finish. It returns true if any of the
+// updates failed to process.
+func (ss *shardState) wait() bool {
+	ss.waitGroup.Wait()
+	ss.sinceLast = 0
+	return ss.didFail.Load()
+}
+
+// lockACI blocks until it is able to get an exclusive lock on the given ACI. No
+// other goroutines are able to obtain a lock until `unlock` is called.
+func (ss *shardState) lockACI(aci []byte) (unlock func()) {
+	aciString := fmt.Sprintf("%x", aci)
+	ch := make(chan struct{})
+	for {
+		existing, locked := ss.aciLocks.LoadOrStore(aciString, ch)
+		if locked {
+			// This ACI is already locked. Wait for it to be unlocked and retry.
+			<-existing.(chan struct{})
+			continue
+		}
+		return func() {
+			ss.aciLocks.CompareAndDelete(aciString, ch)
+			close(ch)
+		}
+	}
+}
+
+func (ss *shardState) failed() { ss.didFail.Store(true) }
+func (ss *shardState) done()   { ss.waitGroup.Done() }
 
 type Streamer struct {
 	config *config.APIConfig
@@ -73,72 +165,68 @@ type Streamer struct {
 }
 
 // run runs the streamer, blocking forever.
-func (s *Streamer) run(ctx context.Context, name string, startAtTimestamp time.Time, updateHandler *KtUpdateHandler) {
+func (s *Streamer) run(ctx context.Context, name string, startAtTimestamp *time.Time, updateHandler *KtUpdateHandler) {
 	i := 0
 	for {
-		var updatesWg sync.WaitGroup
-		var shardsMu sync.Mutex
-
-		// Reset the shards map on consumer restart.
-		shards := make(map[string]*shardState)
-
-		// Create a new context for each run.
+		// Create a new context and shard map for each run.
 		runCtx, cancel := context.WithCancel(ctx)
+		shards := newShardMap()
 
 		// Note on thread safety: The Kinesis consumer library will use one
 		// goroutine per shard to scan. As such, a mutex is required to lookup shard
 		// state from the `shards` map because many shards may be read/written to
-		// the map in parallel. But the returned shardState struct can then used
+		// the map in parallel. But the returned shardState struct can then be used
 		// without a mutex because there is only one goroutine working with it.
 
-		c, err := consumer.New(
-			name,
+		opts := []consumer.Option{
 			consumer.WithLogger(kinesisLogger{}),
 			consumer.WithCounter(metricsCounter{}),
 			consumer.WithStore(s.tx.StreamStore()),
-			consumer.WithShardIteratorType(string(kinesistypes.ShardIteratorTypeAtTimestamp)),
-			consumer.WithTimestamp(startAtTimestamp),
-		)
+		}
+		if startAtTimestamp != nil {
+			opts = append(opts,
+				consumer.WithShardIteratorType(string(kinesistypes.ShardIteratorTypeAtTimestamp)),
+				consumer.WithTimestamp(*startAtTimestamp))
+		} else {
+			opts = append(opts,
+				consumer.WithShardIteratorType(string(kinesistypes.ShardIteratorTypeAfterSequenceNumber)))
+		}
+
+		c, err := consumer.New(name, opts...)
 		if err != nil {
 			util.Log().Errorf("stream consumer initialization error: %v", err)
 			time.Sleep(5 * time.Second)
 			continue
 		}
-		err = c.Scan(runCtx, func(r *consumer.Record) error {
-			// Get the existing shardState struct or initialize a new one if needed.
-			shardsMu.Lock()
-			if _, ok := shards[r.ShardID]; !ok {
-				shards[r.ShardID] = &shardState{0, &sync.WaitGroup{}}
-			}
-			state := shards[r.ShardID]
-			shardsMu.Unlock()
+		startAtTimestamp = nil
 
-			// Start a dedicated goroutine to process this update. We don't call
-			// wg.Done until the update is successfully executed, retrying
-			// infinitely if necessary. This is required to prevent us from
-			// checkpointing past an update that we might've failed to sequence.
-			state.sinceLast += 1
-			state.wg.Add(1)
-			go func(ctx context.Context, data []byte, wg *sync.WaitGroup) {
-				updatesWg.Add(1)
-				defer updatesWg.Done()
+		err = c.Scan(runCtx, func(r *consumer.Record) error {
+			// If start returns nil, the stream is shutting down and we should exit
+			state := shards.start(r.ShardID)
+			if state == nil {
+				return consumer.ErrSkipCheckpoint
+			}
+
+			go func(ctx context.Context, data []byte, state *shardState) {
+				defer state.done()
+
 				for {
 					select {
 					case <-ctx.Done():
+						state.failed()
 						return
 					default:
-						err := updateFromStream(ctx, data, updateHandler, logUpdater)
+						err := updateFromStream(ctx, data, state, updateHandler, logUpdater)
 						if err != nil {
 							util.Log().Infof("failed to update entry from stream: %v", err)
 							metrics.IncrCounter([]string{withinStream, "errors"}, 1)
 							time.Sleep(3 * time.Second)
 						} else {
-							wg.Done()
 							return
 						}
 					}
 				}
-			}(runCtx, dup(r.Data), state.wg)
+			}(runCtx, dup(r.Data), state)
 
 			// If only a few entries have been sequenced from this shard, move on.
 			if state.sinceLast < 100 {
@@ -146,8 +234,9 @@ func (s *Streamer) run(ctx context.Context, name string, startAtTimestamp time.T
 			}
 			// If many entries have been sequenced, we need to checkpoint. First
 			// wait for all processing updates to complete.
-			state.wg.Wait()
-			state.sinceLast = 0
+			if failed := state.wait(); failed {
+				return consumer.ErrSkipCheckpoint
+			}
 			return nil
 		})
 		util.Log().Errorf("stream consumer error: %v", err)
@@ -163,7 +252,7 @@ func (s *Streamer) run(ctx context.Context, name string, startAtTimestamp time.T
 		time.Sleep(delay)
 
 		// Ensure that all update goroutines have exited before restarting the consumer
-		updatesWg.Wait()
+		shards.finish()
 		i++
 	}
 }
@@ -269,14 +358,14 @@ func updateFromBackfill(ctx context.Context, item map[string]types.AttributeValu
 	}
 	if len(account.ACIIdentityKey) > 0 {
 		if err := updater.update(ctx, withinBackfill,
-			append([]byte{util.AciPrefix}, accountID...),
+			append([]byte{shared.AciPrefix}, accountID...),
 			marshalValue(account.ACIIdentityKey), updateHandler, nil); err != nil {
 			return fmt.Errorf("updating %x ACI: %w", accountID, err)
 		}
 	}
 	if len(account.Number) > 0 {
 		if err := updater.update(ctx, withinBackfill,
-			append([]byte{util.NumberPrefix}, []byte(account.Number)...),
+			append([]byte{shared.NumberPrefix}, []byte(account.Number)...),
 			marshalValue(accountID), updateHandler, nil); err != nil {
 			return fmt.Errorf("updating %x Number: %w", accountID, err)
 		}
@@ -287,7 +376,7 @@ func updateFromBackfill(ctx context.Context, item map[string]types.AttributeValu
 			return fmt.Errorf("updating %x username hash: failed to base64 decode hash: %w", accountID, err)
 		}
 		if err := updater.update(ctx, withinBackfill,
-			append([]byte{util.UsernameHashPrefix}, usernameHash...),
+			append([]byte{shared.UsernameHashPrefix}, usernameHash...),
 			marshalValue(accountID), updateHandler, nil); err != nil {
 			return fmt.Errorf("updating %x username hash: %w", accountID, err)
 		}
@@ -295,7 +384,7 @@ func updateFromBackfill(ctx context.Context, item map[string]types.AttributeValu
 	return nil
 }
 
-func updateFromStream(ctx context.Context, data []byte, updateHandler *KtUpdateHandler, updater Updater) error {
+func updateFromStream(ctx context.Context, data []byte, state *shardState, updateHandler *KtUpdateHandler, updater Updater) error {
 	pair := &accountPair{}
 	if err := json.Unmarshal(data, pair); err != nil {
 		// Note: This is not a temporary error and will intentionally cause the
@@ -307,51 +396,57 @@ func updateFromStream(ctx context.Context, data []byte, updateHandler *KtUpdateH
 		metrics.IncrCounter([]string{"stream_empty_pair"}, 1)
 		return nil
 	} else if pair.Prev == nil {
+		defer state.lockACI(pair.Next.ACI)()
+
 		// New registration. ACI and number should always be present on these updates.
 		if err := updater.update(ctx, withinStream,
-			append([]byte{util.AciPrefix}, pair.Next.ACI...),
+			append([]byte{shared.AciPrefix}, pair.Next.ACI...),
 			marshalValue(pair.Next.ACIIdentityKey), updateHandler, nil); err != nil {
 			return fmt.Errorf("updating ACI: %w", err)
 		}
 
 		if err := updater.update(ctx, withinStream,
-			append([]byte{util.NumberPrefix}, []byte(pair.Next.Number)...),
+			append([]byte{shared.NumberPrefix}, []byte(pair.Next.Number)...),
 			marshalValue(pair.Next.ACI), updateHandler, nil); err != nil {
 			return fmt.Errorf("updating number: %w", err)
 		}
 
 		if len(pair.Next.UsernameHash) > 0 {
 			if err := updater.update(ctx, withinStream,
-				append([]byte{util.UsernameHashPrefix}, pair.Next.UsernameHash...),
+				append([]byte{shared.UsernameHashPrefix}, pair.Next.UsernameHash...),
 				marshalValue(pair.Next.ACI), updateHandler, nil); err != nil {
 				return fmt.Errorf("updating username hash: %w", err)
 			}
 		}
 	} else if pair.Next == nil {
+		defer state.lockACI(pair.Prev.ACI)()
+
 		// Account deletion. Overwrite all associated mappings to point to a tombstone value.
 		if err := updater.update(ctx, withinStream,
-			append([]byte{util.AciPrefix}, pair.Prev.ACI...),
+			append([]byte{shared.AciPrefix}, pair.Prev.ACI...),
 			tombstoneBytes, updateHandler, marshalValue(pair.Prev.ACIIdentityKey)); err != nil {
 			return fmt.Errorf("updating ACI: %w", err)
 		}
 
 		if err := updater.update(ctx, withinStream,
-			append([]byte{util.NumberPrefix}, []byte(pair.Prev.Number)...),
+			append([]byte{shared.NumberPrefix}, []byte(pair.Prev.Number)...),
 			tombstoneBytes, updateHandler, marshalValue(pair.Prev.ACI)); err != nil {
 			return fmt.Errorf("updating number: %w", err)
 		}
 
 		if len(pair.Prev.UsernameHash) > 0 {
 			if err := updater.update(ctx, withinStream,
-				append([]byte{util.UsernameHashPrefix}, pair.Prev.UsernameHash...),
+				append([]byte{shared.UsernameHashPrefix}, pair.Prev.UsernameHash...),
 				tombstoneBytes, updateHandler, marshalValue(pair.Prev.ACI)); err != nil {
 				return fmt.Errorf("updating username hash: %w", err)
 			}
 		}
 	} else {
+		defer state.lockACI(pair.Next.ACI)()
+
 		if !bytes.Equal(pair.Prev.ACIIdentityKey, pair.Next.ACIIdentityKey) {
 			if err := updater.update(ctx, withinStream,
-				append([]byte{util.AciPrefix}, pair.Next.ACI...),
+				append([]byte{shared.AciPrefix}, pair.Next.ACI...),
 				marshalValue(pair.Next.ACIIdentityKey), updateHandler, nil); err != nil {
 				return fmt.Errorf("updating ACI: %w", err)
 			}
@@ -361,7 +456,7 @@ func updateFromStream(ctx context.Context, data []byte, updateHandler *KtUpdateH
 			if len(pair.Prev.UsernameHash) > 0 {
 				// Tombstone the old username hash
 				if err := updater.update(ctx, withinStream,
-					append([]byte{util.UsernameHashPrefix}, pair.Prev.UsernameHash...),
+					append([]byte{shared.UsernameHashPrefix}, pair.Prev.UsernameHash...),
 					tombstoneBytes, updateHandler, marshalValue(pair.Prev.ACI)); err != nil {
 					return fmt.Errorf("updating username hash: %w", err)
 				}
@@ -369,7 +464,7 @@ func updateFromStream(ctx context.Context, data []byte, updateHandler *KtUpdateH
 
 			if len(pair.Next.UsernameHash) > 0 {
 				if err := updater.update(ctx, withinStream,
-					append([]byte{util.UsernameHashPrefix}, pair.Next.UsernameHash...),
+					append([]byte{shared.UsernameHashPrefix}, pair.Next.UsernameHash...),
 					marshalValue(pair.Next.ACI), updateHandler, nil); err != nil {
 					return fmt.Errorf("updating username hash: %w", err)
 				}
@@ -380,7 +475,7 @@ func updateFromStream(ctx context.Context, data []byte, updateHandler *KtUpdateH
 			if len(pair.Prev.Number) > 0 {
 				// Tombstone the old phone number
 				if err := updater.update(ctx, withinStream,
-					append([]byte{util.NumberPrefix}, pair.Prev.Number...),
+					append([]byte{shared.NumberPrefix}, pair.Prev.Number...),
 					tombstoneBytes, updateHandler, marshalValue(pair.Prev.ACI)); err != nil {
 					return fmt.Errorf("updating number: %w", err)
 				}
@@ -388,7 +483,7 @@ func updateFromStream(ctx context.Context, data []byte, updateHandler *KtUpdateH
 
 			if len(pair.Next.Number) > 0 {
 				if err := updater.update(ctx, withinStream,
-					append([]byte{util.NumberPrefix}, []byte(pair.Next.Number)...),
+					append([]byte{shared.NumberPrefix}, []byte(pair.Next.Number)...),
 					marshalValue(pair.Next.ACI), updateHandler, nil); err != nil {
 					return fmt.Errorf("updating number: %w", err)
 				}
