@@ -42,6 +42,16 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 jupyter lab kt_gossip_simulator.ipynb
 ```
+### Linux/macOS
+
+```bash
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+jupyter lab sims_paper_2104.ipynb
+```
+
 Then run all cells in order (Cell --> Run All).
 
 ## Configuration
