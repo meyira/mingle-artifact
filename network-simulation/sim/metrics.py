@@ -12,9 +12,11 @@ class Metrics:
 
         self.first_aware_tick = None
         self.first_evidence_tick = None
+        self.msgs_this_tick = 0
 
         self.total_gossip_bytes = 0
         self.total_msgs = 0
+        
 
         # Totals
         self.proof_ok = 0
@@ -29,13 +31,11 @@ class Metrics:
         self._last_evidence = 0
 
     def log_timeline(self, tick, aware_users, evidence_users, bytes_this_tick,
-                     pr_ok, pr_inc, pr_withhold, pr_timeout,
-                     xcut, xcut_drop):
+                pr_ok, pr_inc, pr_withhold, pr_timeout,
+                xcut, xcut_drop, msgs_this_tick, latest_users):
         self.timeline.append((tick, aware_users, evidence_users, bytes_this_tick,
-                              pr_ok, pr_inc, pr_withhold, pr_timeout,
-                              xcut, xcut_drop))
-        self._last_aware = int(aware_users)
-        self._last_evidence = int(evidence_users)
+                         pr_ok, pr_inc, pr_withhold, pr_timeout,
+                         xcut, xcut_drop, msgs_this_tick, latest_users))
 
     def add_event(self, tick, user, kind):
         kind = str(kind)
@@ -51,6 +51,7 @@ class Metrics:
 
     def add_msgs(self, n=1):
         self.total_msgs += int(n)
+        self.msgs_this_tick += n
 
     def write(self, summary_extra=None):
         # timeline
@@ -61,13 +62,15 @@ class Metrics:
             w.writerow([
                 "tick",
                 "aware_users",
-                "detectors",        # alias for evidence_users
+                "detectors",
                 "evidence_users",
                 "gossip_bytes_this_tick",
                 "proofs_ok","proofs_inconsistent","proofs_withhold","proofs_timeout",
-                "crosscut_deliveries","crosscut_dropped"
-            ])
-            for (tick, aware_u, evid_u, bytes_tick, pr_ok, pr_inc, pr_w, pr_t, xcut, xdrop) in self.timeline:
+                "crosscut_deliveries","crosscut_dropped",
+                "messages_this_tick",
+                "latest_users",
+        ])
+            for (tick, aware_u, evid_u, bytes_tick, pr_ok, pr_inc, pr_w, pr_t, xcut, xdrop, msgs_tick, latest_users) in self.timeline:
                 w.writerow([
                     tick,
                     aware_u,
@@ -75,8 +78,10 @@ class Metrics:
                     evid_u,
                     bytes_tick,
                     pr_ok, pr_inc, pr_w, pr_t,
-                    xcut, xdrop
-                ])
+                    xcut, xdrop,
+                    msgs_tick,
+                    latest_users,
+        ])
 
         # events
         with open(os.path.join(self.outdir, "events.csv"), "w", newline="", encoding="utf-8") as f:

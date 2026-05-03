@@ -1,8 +1,19 @@
 from dataclasses import dataclass
 from enum import Enum, auto
 import numpy as np
+import json
 
 BRANCH_A, BRANCH_B = 0, 1
+
+def _payload_size_bytes(obj) -> int:
+    if obj is None:
+        return 0
+    if isinstance(obj, (bytes, bytearray)):
+        return len(obj)
+    try:
+        return len(json.dumps(obj, sort_keys=True).encode("utf-8"))
+    except Exception:
+        return len(str(obj).encode("utf-8"))
 
 class ProofResult(Enum):
     OK = auto()
@@ -44,6 +55,14 @@ class ServerBehavior:
     rng_seed: int = 42
 
 
+
+@dataclass
+class ServerStats:
+    server_consistency_queries: int = 0
+    server_consistency_query_bytes: int = 0
+    server_proofs_served: int = 0
+    server_proof_bytes_served: int = 0
+
 class Server:
     """
     KT server model with multiple behaviors:
@@ -73,6 +92,7 @@ class Server:
 
         # clamp
         self._p_victim = max(0.0, min(1.0, self._p_victim))
+        self.stats = ServerStats()
 
     # --- helpers ---
     def _epoch(self, hour: float) -> int:
@@ -157,6 +177,12 @@ class Server:
             return ProofResult.OK
         return ProofResult.INCONSISTENT
 
-
+    def latest_honest_sth(self, hour: float):
+        """
+        Return the latest honest commitment (branch, epoch) at this time,
+        independent of what a particular client is shown.
+        """
+        return (BRANCH_A, self._epoch(hour))
 # Backward-compatible alias for older scripts
 ServerConfig = ServerBehavior
+
