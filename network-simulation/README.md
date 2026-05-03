@@ -29,8 +29,7 @@ The simulations run on a standard laptop/desktop CPU.
 - `tools/`: utility code used by the notebook
 - `out_nb_incremental_clean0104/`: cached outputs used for quick reproduction
 - `requirements.txt`: Python dependencies
-- `Makefile`: convenience commands
-- `run.sh`, `windows_run.ps1`: platform-specific helper scripts
+
 
 ## Quick Start
 # Windows Powershell
