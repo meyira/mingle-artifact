@@ -1,0 +1,13 @@
+tick,aware_users,detectors,evidence_users,gossip_bytes_this_tick,proofs_ok,proofs_inconsistent,proofs_withhold,proofs_timeout,crosscut_deliveries,crosscut_dropped,messages_this_tick,latest_users
+0,0,0,0,0,0,0,0,0,0,0,10,500
+1,0,0,0,0,0,0,0,0,0,0,17,500
+2,0,0,0,0,0,0,0,0,0,0,12,500
+3,0,0,0,0,0,0,0,0,0,0,33,500
+4,0,0,0,0,0,0,0,0,0,0,18,500
+5,0,0,0,0,0,0,0,0,0,0,45,500
+6,0,0,0,0,0,0,0,0,0,0,21,500
+7,0,0,0,0,0,0,0,0,0,0,40,500
+8,0,0,0,0,0,0,0,0,0,0,27,500
+9,0,0,0,0,0,0,0,0,0,0,15,500
+10,0,0,0,0,0,0,0,0,0,0,3,500
+11,0,0,0,0,0,0,0,0,0,0,3,500

@@ -1,0 +1,6 @@
+structure,detected_rate,lat_ev_med,lat_ev_q25,lat_ev_q75,evid_frac_30m_mean
+1:1 only,1.0,47.5,12.5,105.0,0.0001111111111111111
+"Groups
+within-cut",1.0,22.5,13.75,41.25,0.00035416666666666664
+"Groups
+cross-cut",1.0,45.0,17.5,65.0,0.0002986111111111111
