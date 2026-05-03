@@ -2,12 +2,45 @@
 
 This Jupyter notebook contains the network simulation code used to evaluate the performance characteristics described in the paper.
 
-## Quick Start
+The main artifact entry point is:
 
-```bash
-make
-jupyter notebook
-```
+- `kt_gossip_simulator.ipynb`
+
+This notebook reproduces the paper figures and tables from either:
+1. cached outputs included in the repository (`quick reproduction`), or
+2. raw simulation runs (`full reproduction`).
+
+## Tested environment
+
+Tested on:
+- Windows 11
+
+Tested with:
+- Python 3.13
+
+No GPU is required.
+The simulations run on a standard laptop/desktop CPU.
+
+## Repository structure
+
+- `kt_gossip_simulator.ipynb`: canonical notebook for artifact evaluation
+- `sim/`: simulator source code
+- `analysis/`: helper analysis code used by the notebook
+- `tools/`: utility code used by the notebook
+- `out_nb_incremental_clean0104/`: cached outputs used for quick reproduction
+- `requirements.txt`: Python dependencies
+- `Makefile`: convenience commands
+- `run.sh`, `windows_run.ps1`: platform-specific helper scripts
+
+## Quick Start
+# Windows Powershell
+py -3.13 -m venv .venv
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+jupyter lab kt_gossip_simulator.ipynb
+
 Then run all cells in order (Cell --> Run All).
 
 ## Configuration
@@ -15,7 +48,7 @@ Key parameters can be adjusted at the top of the notebook:
 - `users` - Number of users (default small: 500, default laptop 2000)
 - `hours` - Simulation duration
 - `groups` - Number of group chats
-- `msg_rate_1to1/group** - Message rates (TODO  messages per minute)
+- `msg_rate_1to1/group` - Message rates (TODO  messages per minute)
 - `p\_gossip` - Probability of gossip protocol exchange
 - `adoption` - Fraction of users using the gossip protocol
 - `server\_mode` - mode of operation for the server, choose between honest, permanent\_fork, transient_fork, rolling, freeze, regional
@@ -24,10 +57,8 @@ Key parameters can be adjusted at the top of the notebook:
 
 ## Output
 
-The simulation generates:
-TODO  FILL IN HERE WHICH FIGURES ARE GENERATED HOW
+The simulation generates Plots for the 4 scenarios included in the paper: BASELINE, TRADEOFF, TARGET, CENSOR.
 
-Results match Figure 3 and Table 2 in the paper. TODO 
 
 ## Runtime
 
@@ -35,22 +66,11 @@ Expected runtime: under 10 minutes on a standard laptop.
 
 To reduce runtime for testing, decrease `users` or `hours`.
 
-## Troubleshooting
-
-### Jupyter notebook won't start
-Ensure Jupyter is installed: `pip install jupyter`
-
-### Import errors
-Make sure you've activated the virtual environment and installed all dependencies:
-```bash
-source .venv/bin/activate
-.venv/bin/pip install --upgrade pip
-pip install -r requirements.txt
-```
 
 ### Simulation runs slowly
 The simulation is computationally intensive. Consider:
 - Reducing the number of users in the configuration
 - Running on a machine with more CPU cores
-- Using the pre-computed results in `network-simulation/results/` TODO  DO
-  WE HAVE THESE?
+## Quick reproduction
+Quick reproduction regenerates the final paper figures/tables from the included cached outputs.
+
