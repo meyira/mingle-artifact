@@ -1,6 +1,6 @@
 # Artifact for MINGLE
 
-This artifact accompanies our submission **Chat as an Auditor: Gossip-Based Detection of Key Transparency Split Views in E2EE Messengers** and contains the complete materials necessary to reproduce and verify our experimental results.
+This artifact accompanies our submission **Signal and ready to MINGLE: In-Band Gossip for Key Transparency Split-View Detection in E2EE Messengers** and contains the complete materials necessary to reproduce and verify our experimental results.
 
 ## Contents
 
@@ -48,4 +48,4 @@ To reproduce the key results from our paper:
 
 ## Changelog
 
-- **v1.0** - Initial release for USENIX artifact evaluation
+- **v1.0** - Initial release for artifact evaluation
